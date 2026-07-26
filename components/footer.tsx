@@ -1,3 +1,5 @@
+import { AxonMark } from "./logo"
+
 export function Footer() {
   const footerLinks = {
     Features: ["Plan", "Build", "Insights", "Customer Requests", "Sprint Asks", "Security", "Mobile"],
@@ -13,16 +15,10 @@ export function Footer() {
         <div className="grid grid-cols-2 md:grid-cols-6 gap-8">
           {/* Logo */}
           <div className="col-span-2 md:col-span-1">
-            <svg width="20" height="20" viewBox="0 0 100 100" fill="none" className="text-white">
-              <path
-                d="M20 30 L50 10 L80 30 L80 70 L50 90 L20 70 Z"
-                fill="currentColor"
-                stroke="currentColor"
-                strokeWidth="2"
-              />
-              <path d="M50 10 L50 50 L20 30" fill="#09090B" />
-              <path d="M50 50 L80 70 L50 90" fill="#09090B" />
-            </svg>
+            <div className="flex items-center gap-2">
+              <AxonMark className="h-6 w-6 text-white" />
+              <span className="text-white font-semibold tracking-tight">Axon</span>
+            </div>
           </div>
 
           {/* Links */}
