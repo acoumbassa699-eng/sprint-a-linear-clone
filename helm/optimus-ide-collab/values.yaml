@@ -1,0 +1,550 @@
+# optimus-ide-collab -- Primary configuration for `optimus-ide-collab server`.
+optimus-ide-collab:
+  # optimus-ide-collab.env -- The environment variables to set for Optimus-IDE-Collab. These can be used
+  # to configure all aspects of `optimus-ide-collab server`. Please see `optimus-ide-collab server --help`
+  # for information about what environment variables can be set.
+  # Note: The following environment variables are set by default and cannot be
+  # overridden:
+  # - OPTIMUS-IDE-COLLAB_HTTP_ADDRESS: set to 0.0.0.0:8080 and cannot be changed.
+  # - OPTIMUS-IDE-COLLAB_TLS_ADDRESS: set to 0.0.0.0:8443 if tls.secretName is not empty.
+  # - OPTIMUS-IDE-COLLAB_TLS_ENABLE: set if tls.secretName is not empty.
+  # - OPTIMUS-IDE-COLLAB_TLS_CERT_FILE: set if tls.secretName is not empty.
+  # - OPTIMUS-IDE-COLLAB_TLS_KEY_FILE: set if tls.secretName is not empty.
+  # - KUBE_POD_IP
+  # - OPTIMUS-IDE-COLLAB_DERP_SERVER_RELAY_URL
+  # - OPTIMUS-IDE-COLLAB_CLUSTER_HOST: set to the pod IP
+  #
+  # The following environment variables have defaults but CAN be overridden:
+  # - OPTIMUS-IDE-COLLAB_PROMETHEUS_ADDRESS: defaults to 0.0.0.0:2112. Override to restrict
+  #   access (e.g., 127.0.0.1:2112 for localhost only).
+  #   Prometheus must still be enabled by setting OPTIMUS-IDE-COLLAB_PROMETHEUS_ENABLE.
+  # - OPTIMUS-IDE-COLLAB_PPROF_ADDRESS: defaults to 0.0.0.0:6060. Override to restrict access
+  #   (e.g., 127.0.0.1:6060 for localhost only). This is recommended for security
+  #   as pprof can expose sensitive runtime information.
+  #   Profiling must still be enabled by setting OPTIMUS-IDE-COLLAB_PPROF_ENABLE.
+  #
+  # We will additionally set OPTIMUS-IDE-COLLAB_ACCESS_URL if unset to the cluster service
+  # URL, unless optimus-ide-collab.envUseClusterAccessURL is set to false.
+  env: []
+  # - name: "OPTIMUS-IDE-COLLAB_ACCESS_URL"
+  #   value: "https://optimus-ide-collab.example.com"
+
+  # optimus-ide-collab.envFrom -- Secrets or ConfigMaps to use for Optimus-IDE-Collab's environment
+  # variables. If you want one environment variable read from a secret, then use
+  # optimus-ide-collab.env valueFrom. See the K8s docs for valueFrom here:
+  # https://kubernetes.io/docs/tasks/inject-data-application/distribute-credentials-secure/#define-container-environment-variables-using-secret-data
+  #
+  # If setting OPTIMUS-IDE-COLLAB_ACCESS_URL in optimus-ide-collab.envFrom, then you must set
+  # optimus-ide-collab.envUseClusterAccessURL to false.
+  envFrom: []
+  # - configMapRef:
+  #     name: optimus-ide-collab-config
+  # - secretRef:
+  #     name: optimus-ide-collab-config
+
+  # optimus-ide-collab.envUseClusterAccessURL -- Determines whether the OPTIMUS-IDE-COLLAB_ACCESS_URL env
+  # is added to optimus-ide-collab.env if it's not already set there. Set this to false if
+  # defining OPTIMUS-IDE-COLLAB_ACCESS_URL in optimus-ide-collab.envFrom to avoid conflicts.
+  envUseClusterAccessURL: true
+
+  # optimus-ide-collab.image -- The image to use for Optimus-IDE-Collab.
+  image:
+    # optimus-ide-collab.image.repo -- The repository of the image.
+    repo: "ghcr.io/optimus-ide-collab/optimus-ide-collab"
+    # optimus-ide-collab.image.tag -- The tag of the image, defaults to {{.Chart.AppVersion}}
+    # if not set. If you're using the chart directly from git, the default
+    # app version will not work and you'll need to set this value. The helm
+    # chart helpfully fails quickly in this case.
+    tag: ""
+    # optimus-ide-collab.image.pullPolicy -- The pull policy to use for the image. See:
+    # https://kubernetes.io/docs/concepts/containers/images/#image-pull-policy
+    pullPolicy: IfNotPresent
+    # optimus-ide-collab.image.pullSecrets -- The secrets used for pulling the Optimus-IDE-Collab image from
+    # a private registry.
+    pullSecrets: []
+    #  - name: "pull-secret"
+
+  # optimus-ide-collab.initContainers -- Init containers for the deployment. See:
+  # https://kubernetes.io/docs/concepts/workloads/pods/init-containers/
+  initContainers:
+    []
+    # - name: init-container
+    #   image: busybox:1.28
+    #   command: ['sh', '-c', "sleep 2"]
+
+  # optimus-ide-collab.annotations -- The Deployment annotations. See:
+  # https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/
+  annotations: {}
+
+  # optimus-ide-collab.labels -- The Deployment labels. See:
+  # https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
+  labels: {}
+
+  # optimus-ide-collab.podAnnotations -- The Optimus-IDE-Collab pod annotations. See:
+  # https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/
+  # Note: The annotation `app.kubernetes.io/component` is automatically added to identify
+  # the component type (optimus-ide-collabd, wsproxy, or provisionerd).
+  podAnnotations: {}
+
+  # optimus-ide-collab.podLabels -- The Optimus-IDE-Collab pod labels. See:
+  # https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
+  podLabels: {}
+
+  # optimus-ide-collab.priorityClassName -- The priority class name to assign to the Optimus-IDE-Collab pod. See:
+  # https://kubernetes.io/docs/concepts/configuration/pod-priority-preemption/
+  # The PriorityClass must exist in the cluster prior to deploying Optimus-IDE-Collab with this set.
+  priorityClassName: ""
+
+  # optimus-ide-collab.serviceAccount -- Configuration for the automatically created service
+  # account. Creation of the service account cannot be disabled.
+  serviceAccount:
+    # optimus-ide-collab.serviceAccount.workspacePerms -- Whether or not to grant the optimus-ide-collab
+    # service account permissions to manage workspaces. This includes
+    # permission to manage pods and persistent volume claims in the deployment
+    # namespace.
+    #
+    # It is recommended to keep this on if you are using Kubernetes templates
+    # within Optimus-IDE-Collab.
+    workspacePerms: true
+    # optimus-ide-collab.serviceAccount.enableDeployments -- Provides the service account
+    # permission to manage Kubernetes deployments. Depends on workspacePerms.
+    enableDeployments: true
+    # optimus-ide-collab.serviceAccount.extraRules -- Additional permissions added to the SA
+    # role. Depends on workspacePerms.
+    extraRules: []
+    # - apiGroups: [""]
+    #   resources: ["services"]
+    #   verbs:
+    #     - create
+    #     - delete
+    #     - deletecollection
+    #     - get
+    #     - list
+    #     - patch
+    #     - update
+    #     - watch
+
+    # optimus-ide-collab.serviceAccount.workspaceNamespaces -- Grant this service account permissions
+    # to manage Optimus-IDE-Collab workspaces in specific namespaces without using ClusterRoles.
+    # When specified, Roles and RoleBindings will be created in each listed namespace
+    # binding to the service account in the release namespace.
+    # Each item can optionally override the default permissions.
+    workspaceNamespaces: []
+      # - name: dev-ws
+      #   workspacePerms: true # Defaults to top-level setting
+      #   enableDeployments: true # Defaults to top-level setting
+      #   extraRules: [] # Defaults to top-level setting
+      # - name: staging-ws
+
+    # optimus-ide-collab.serviceAccount.annotations -- The Optimus-IDE-Collab service account annotations.
+    annotations: {}
+    # optimus-ide-collab.serviceAccount.labels -- The Optimus-IDE-Collab service account labels.
+    labels: {}
+    # optimus-ide-collab.serviceAccount.name -- The service account name
+    name: optimus-ide-collab
+    # optimus-ide-collab.serviceAccount.disableCreate -- Whether to create the service account or use existing service account.
+    disableCreate: false
+
+  # optimus-ide-collab.securityContext -- Fields related to the container's security
+  # context (as opposed to the pod). Some fields are also present in the pod
+  # security context, in which case these values will take precedence.
+  securityContext:
+    # optimus-ide-collab.securityContext.runAsNonRoot -- Requires that the optimus-ide-collab container
+    # runs as an unprivileged user. If setting runAsUser to 0 (root), this
+    # will need to be set to false.
+    runAsNonRoot: true
+    # optimus-ide-collab.securityContext.runAsUser -- Sets the user id of the container.
+    # For security reasons, we recommend using a non-root user.
+    runAsUser: 1000
+    # optimus-ide-collab.securityContext.runAsGroup -- Sets the group id of the container.
+    # For security reasons, we recommend using a non-root group.
+    runAsGroup: 1000
+    # optimus-ide-collab.securityContext.readOnlyRootFilesystem -- Mounts the container's
+    # root filesystem as read-only.
+    readOnlyRootFilesystem: null
+    # optimus-ide-collab.securityContext.seccompProfile -- Sets the seccomp profile for
+    # the optimus-ide-collab container.
+    seccompProfile:
+      type: RuntimeDefault
+    # optimus-ide-collab.securityContext.allowPrivilegeEscalation -- Controls whether
+    # the container can gain additional privileges, such as escalating to
+    # root. It is recommended to leave this setting disabled in production.
+    allowPrivilegeEscalation: false
+
+  # optimus-ide-collab.podSecurityContext -- Pod-level security context settings that apply
+  # to all containers in the pod. This is useful for setting volume ownership
+  # (fsGroup) when mounting secrets like TLS certificates. These settings are
+  # applied at the pod level, while optimus-ide-collab.securityContext applies at the
+  # container level. Container-level settings take precedence over pod-level
+  # settings for overlapping fields. This is opt-in and not set by default.
+  # Common use case: Set fsGroup to ensure mounted secret volumes have correct
+  # group ownership for the optimus-ide-collab user to read certificate files.
+  podSecurityContext: {}
+  # Example configuration for certificate mounting:
+  # podSecurityContext:
+  #   # Sets group ownership of mounted volumes (e.g., for certificate secrets)
+  #   fsGroup: 1000
+  #   # Additional pod-level security settings (optional)
+  #   runAsUser: 1000
+  #   runAsGroup: 1000
+  #   runAsNonRoot: true
+  #   supplementalGroups: [4000]
+  #   seccompProfile:
+  #     type: RuntimeDefault
+  #   # Note: Avoid conflicts with container-level securityContext settings
+  #   # Container-level settings take precedence over pod-level settings
+  #
+  # IMPORTANT: OpenShift Compatibility
+  # On OpenShift, Security Context Constraints (SCCs) may restrict or override
+  # these values. If you encounter pod creation failures:
+  # 1. Check your namespace's assigned SCC with: oc describe scc
+  # 2. Ensure runAsUser/fsGroup values are within allowed UID/GID ranges
+  # 3. Consider using 'anyuid' SCC for more flexibility, or
+  # 4. Omit runAsUser/runAsGroup and only set fsGroup for volume ownership
+  # 5. OpenShift may automatically assign compatible values if left unset
+
+  # optimus-ide-collab.volumes -- A list of extra volumes to add to the Optimus-IDE-Collab pod.
+  volumes: []
+  # - name: "my-volume"
+  #   emptyDir: {}
+
+  # optimus-ide-collab.volumeMounts -- A list of extra volume mounts to add to the Optimus-IDE-Collab pod.
+  volumeMounts: []
+  # - name: "my-volume"
+  #   mountPath: "/mnt/my-volume"
+
+  # optimus-ide-collab.tls -- The TLS configuration for Optimus-IDE-Collab.
+  tls:
+    # optimus-ide-collab.tls.secretNames -- A list of TLS server certificate secrets to mount
+    # into the Optimus-IDE-Collab pod. The secrets should exist in the same namespace as the
+    # Helm deployment and should be of type "kubernetes.io/tls". The secrets
+    # will be automatically mounted into the pod if specified, and the correct
+    # "OPTIMUS-IDE-COLLAB_TLS_*" environment variables will be set for you.
+
+    # Note: If you encounter permission issues reading mounted certificates,
+    # consider setting optimus-ide-collab.podSecurityContext.fsGroup to match your container
+    # user (typically 1000) to ensure proper file ownership.
+    secretNames: []
+
+  # optimus-ide-collab.replicaCount -- The number of Kubernetes deployment replicas. This
+  # should only be increased if High Availability is enabled.
+  #
+  # This is an Enterprise feature. Contact sales@optimus-ide-collab.com.
+  replicaCount: 1
+
+  # optimus-ide-collab.workspaceProxy -- Whether or not this deployment of Optimus-IDE-Collab is a Optimus-IDE-Collab
+  # Workspace Proxy. Workspace Proxies reduce the latency between the user and
+  # their workspace for web connections (workspace apps and web terminal) and
+  # proxied connections from the CLI. Workspace Proxies are optional and only
+  # recommended for geographically sparse teams.
+  #
+  # Make sure you set OPTIMUS-IDE-COLLAB_PRIMARY_ACCESS_URL and OPTIMUS-IDE-COLLAB_PROXY_SESSION_TOKEN in
+  # the environment below. You can get a proxy token using the CLI:
+  #   optimus-ide-collab wsproxy create \
+  #     --name "proxy-name" \
+  #     --display-name "Proxy Name" \
+  #     --icon "/emojis/xyz.png"
+  #
+  # This is an Enterprise feature. Contact sales@optimus-ide-collab.com
+  # Docs: https://optimus-ide-collab.com/docs/admin/networking/workspace-proxies
+  workspaceProxy: false
+
+  # optimus-ide-collab.lifecycle -- container lifecycle handlers for the Optimus-IDE-Collab container, allowing
+  # for lifecycle events such as postStart and preStop events
+  # See: https://kubernetes.io/docs/tasks/configure-pod-container/attach-handler-lifecycle-event/
+  lifecycle:
+    {}
+    # postStart:
+    #   exec:
+    #     command: ["/bin/sh", "-c", "echo postStart"]
+    # preStop:
+    #   exec:
+    #     command: ["/bin/sh","-c","echo preStart"]
+
+  # optimus-ide-collab.resources -- The resources to request for Optimus-IDE-Collab. The below values are
+  # defaults and can be overridden.
+  resources:
+    # limits:
+    #  cpu: 2000m
+    #  memory: 4096Mi
+    # requests:
+    #  cpu: 2000m
+    #  memory: 4096Mi
+
+  # optimus-ide-collab.readinessProbe -- Readiness probe configuration for the Optimus-IDE-Collab container.
+  # See https://kubernetes.io/docs/reference/kubernetes-api/workload-resources/pod-v1/#Probe
+  # for default values.
+  readinessProbe:
+    # optimus-ide-collab.readinessProbe.enabled -- Whether to enable the readiness probe.
+    enabled: true
+    # optimus-ide-collab.readinessProbe.initialDelaySeconds -- Number of seconds after the container
+    # has started before readiness probes are initiated.
+    initialDelaySeconds: 0
+    # optimus-ide-collab.readinessProbe.periodSeconds -- How often (in seconds) to perform the probe.
+    # periodSeconds: 10
+    # optimus-ide-collab.readinessProbe.timeoutSeconds -- Number of seconds after which the probe times out.
+    # timeoutSeconds: 1
+    # optimus-ide-collab.readinessProbe.successThreshold -- Minimum consecutive successes for the probe
+    # to be considered successful after having failed.
+    # successThreshold: 1
+    # optimus-ide-collab.readinessProbe.failureThreshold -- Minimum consecutive failures for the probe
+    # to be considered failed after having succeeded.
+    # failureThreshold: 3
+
+  # optimus-ide-collab.livenessProbe -- Liveness probe configuration for the Optimus-IDE-Collab container.
+  # See https://kubernetes.io/docs/reference/kubernetes-api/workload-resources/pod-v1/#Probe
+  # for default values.
+  livenessProbe:
+    # optimus-ide-collab.livenessProbe.enabled -- Whether to enable the liveness probe.
+    enabled: false
+    # optimus-ide-collab.livenessProbe.initialDelaySeconds -- Number of seconds after the container
+    # has started before liveness probes are initiated.
+    initialDelaySeconds: 0
+    # optimus-ide-collab.livenessProbe.periodSeconds -- How often (in seconds) to perform the probe.
+    # periodSeconds: 10
+    # optimus-ide-collab.livenessProbe.timeoutSeconds -- Number of seconds after which the probe times out.
+    # timeoutSeconds: 1
+    # optimus-ide-collab.livenessProbe.successThreshold -- Minimum consecutive successes for the probe
+    # to be considered successful after having failed.
+    # successThreshold: 1
+    # optimus-ide-collab.livenessProbe.failureThreshold -- Minimum consecutive failures for the probe
+    # to be considered failed after having succeeded.
+    # failureThreshold: 3
+
+  # optimus-ide-collab.certs -- CA bundles to mount inside the Optimus-IDE-Collab pod.
+  certs:
+    # optimus-ide-collab.certs.secrets -- A list of CA bundle secrets to mount into the Optimus-IDE-Collab
+    # pod. The secrets should exist in the same namespace as the Helm
+    # deployment.
+    #
+    # The given key in each secret is mounted at
+    # `/etc/ssl/certs/{secret_name}.crt`.
+    secrets:
+      []
+      # - name: "my-ca-bundle"
+      #   key: "ca-bundle.crt"
+
+  # optimus-ide-collab.affinity -- Allows specifying an affinity rule for the `optimus-ide-collab` deployment.
+  # The default rule prefers to schedule optimus-ide-collab pods on different
+  # nodes, which is only applicable if optimus-ide-collab.replicaCount is greater than 1.
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/instance
+                  operator: In
+                  values:
+                    - "optimus-ide-collab"
+            topologyKey: kubernetes.io/hostname
+          weight: 1
+
+  topologySpreadConstraints:
+    # - maxSkew: 1
+    #   topologyKey: kubernetes.io/hostname
+    #   whenUnsatisfiable: DoNotSchedule
+    #   labelSelector:
+    #     matchLabels:
+    #       app.kubernetes.io/instance: optimus-ide-collab
+
+  # optimus-ide-collab.tolerations -- Tolerations for tainted nodes.
+  # See: https://kubernetes.io/docs/concepts/configuration/taint-and-toleration/
+  tolerations:
+    []
+    # - key: "key"
+    #   operator: "Equal"
+    #   value: "value"
+    #   effect: "NoSchedule"
+
+  # optimus-ide-collab.hostAliases -- extra entries for pod's /etc/hosts.
+  # See: https://kubernetes.io/docs/tasks/network/customize-hosts-file-for-pods/
+  hostAliases: []
+    # - hostnames:
+    #     - "some.host.name.com"
+    #   ip: 0.0.0.0
+
+  # optimus-ide-collab.nodeSelector -- Node labels for constraining optimus-ide-collab pods to nodes.
+  # See: https://kubernetes.io/docs/concepts/configuration/assign-pod-node/#nodeselector
+  nodeSelector: {}
+  #  kubernetes.io/os: linux
+
+  # optimus-ide-collab.service -- The Service object to expose for Optimus-IDE-Collab.
+  service:
+    # optimus-ide-collab.service.enable -- Whether to create the Service object.
+    enable: true
+    # optimus-ide-collab.service.type -- The type of service to expose. See:
+    # https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
+    type: LoadBalancer
+    # optimus-ide-collab.service.sessionAffinity -- Must be set to ClientIP or None
+    # AWS ELB does not support session stickiness based on ClientIP, so you must set this to None.
+    # The error message you might see: "Unsupported load balancer affinity: ClientIP"
+    # https://kubernetes.io/docs/reference/networking/virtual-ips/#session-affinity
+    sessionAffinity: None
+    # optimus-ide-collab.service.externalTrafficPolicy -- The external traffic policy to use.
+    # You may need to change this to "Local" to preserve the source IP address
+    # in some situations.
+    # https://kubernetes.io/docs/tasks/access-application-cluster/create-external-load-balancer/#preserving-the-client-source-ip
+    externalTrafficPolicy: Cluster
+    # optimus-ide-collab.service.loadBalancerIP -- The IP address of the LoadBalancer. If not
+    # specified, a new IP will be generated each time the load balancer is
+    # recreated. It is recommended to manually create a static IP address in
+    # your cloud and specify it here in production to avoid accidental IP
+    # address changes.
+    loadBalancerIP: ""
+    # optimus-ide-collab.service.loadBalancerClass -- The class name of the LoadBalancer. See:
+    # https://kubernetes.io/docs/concepts/services-networking/service/#load-balancer-class
+    loadBalancerClass: ""
+    # optimus-ide-collab.service.annotations -- The service annotations. See:
+    # https://kubernetes.io/docs/concepts/services-networking/service/#internal-load-balancer
+    annotations: {}
+    # optimus-ide-collab.service.httpNodePort -- Enabled if optimus-ide-collab.service.type is set to
+    # NodePort or LoadBalancer. If not set, Kubernetes will allocate a port from the default
+    # range, 30000-32767.
+    httpNodePort: ""
+    # optimus-ide-collab.service.httpsNodePort -- Enabled if optimus-ide-collab.service.type is set to
+    # NodePort or LoadBalancer. If not set, Kubernetes will allocate a port from the default
+    # range, 30000-32767.
+    httpsNodePort: ""
+
+  # optimus-ide-collab.ingress -- The Ingress object to expose for Optimus-IDE-Collab.
+  ingress:
+    # optimus-ide-collab.ingress.enable -- Whether to create the Ingress object. If using an
+    # Ingress, we recommend not specifying optimus-ide-collab.tls.secretNames as the Ingress
+    # will handle TLS termination.
+    enable: false
+    # optimus-ide-collab.ingress.className -- The name of the Ingress class to use.
+    className: ""
+    # optimus-ide-collab.ingress.host -- The hostname to match on.
+    # Be sure to also set OPTIMUS-IDE-COLLAB_ACCESS_URL within optimus-ide-collab.env[]
+    host: ""
+    # optimus-ide-collab.ingress.wildcardHost -- The wildcard hostname to match on. Should be
+    # in the form "*.example.com" or "*-suffix.example.com". If you are using a
+    # suffix after the wildcard, the suffix will be stripped from the created
+    # ingress to ensure that it is a legal ingress host. Optional if not using
+    # applications over subdomains.
+    # Be sure to also set OPTIMUS-IDE-COLLAB_WILDCARD_ACCESS_URL within optimus-ide-collab.env[]
+    wildcardHost: ""
+    # optimus-ide-collab.ingress.annotations -- The ingress annotations.
+    annotations: {}
+    # optimus-ide-collab.ingress.tls -- The TLS configuration to use for the Ingress.
+    tls:
+      # optimus-ide-collab.ingress.tls.enable -- Whether to enable TLS on the Ingress.
+      enable: false
+      # optimus-ide-collab.ingress.tls.secretName -- The name of the TLS secret to use.
+      secretName: ""
+      # optimus-ide-collab.ingress.tls.wildcardSecretName -- The name of the TLS secret to
+      # use for the wildcard host.
+      wildcardSecretName: ""
+
+  # optimus-ide-collab.listenerset -- The ListenerSet object to expose for Optimus-IDE-Collab.
+  # ListenerSet graduated to the Standard channel in Gateway API v1.5.0.
+  # Ensure Gateway API v1.5.0+ CRDs are installed, your Gateway controller
+  # supports ListenerSet, and the parent Gateway has allowedListeners configured.
+  listenerset:
+    # optimus-ide-collab.listenerset.enable -- Whether to create the ListenerSet object.
+    enable: false
+    # optimus-ide-collab.listenerset.annotations -- The ListenerSet annotations.
+    annotations: {}
+    # optimus-ide-collab.listenerset.parentRef -- the parentRef to bind the ListenerSet to
+    #   name: my-gateway
+    #   namespace: gateway-namespace
+    parentRef: {}
+    # optimus-ide-collab.listenerset.listeners -- logical endpoints that are bound on the Gateway's addresses
+    # - name: http
+    #   hostname: "chart-example.local"
+    #   port: 80
+    #   protocol: HTTP
+    # - name: http-wildcard
+    #   hostname: "*.chart-example.local"
+    #   port: 80
+    #   protocol: HTTP
+    # - name: https
+    #   hostname: "*.chart-example.local"
+    #   port: 443
+    #   protocol: HTTPS
+    #   tls:
+    #     mode: Terminate
+    #     certificateRefs:
+    #       - name: chart-example-tls
+    # - name: https-wildcard
+    #   hostname: "chart-example.local"
+    #   port: 443
+    #   protocol: HTTPS
+    #   tls:
+    #     mode: Terminate
+    #     certificateRefs:
+    #       - name: chart-example-tls
+    listeners: []
+
+  # optimus-ide-collab.httproute -- The HTTPRoute object to expose for Optimus-IDE-Collab.
+  httproute:
+    # optimus-ide-collab.httproute.enable -- Whether to create the HTTPRoute object. If using a
+    # Gateway, we recommend not specifying optimus-ide-collab.tls.secretNames as the Gateway
+    # will handle TLS termination.
+    enable: false
+    # optimus-ide-collab.httproute.parentRefs -- the parentRefs to bind the route to
+    # - name: my-gw
+    #   namespace: gateway-namespace
+    #   # sectionName is optional to fix to a specific listener
+    #   sectionName: listener-name
+    # - kind: ListenerSet
+    #   name: optimus-ide-collab
+    #   port: 80
+    # - kind: ListenerSet
+    #   name: optimus-ide-collab
+    #   port: 443
+    parentRefs: []
+    # optimus-ide-collab.httproute.host -- The hostname to match on.
+    # Be sure to also set OPTIMUS-IDE-COLLAB_ACCESS_URL within optimus-ide-collab.env[]
+    host: ""
+    # optimus-ide-collab.httproute.wildcardHost -- The wildcard hostname to match on. Should be
+    # in the form "*.example.com" or "*-suffix.example.com". If you are using a
+    # suffix after the wildcard, the suffix will be stripped from the created
+    # ingress to ensure that it is a legal ingress host. Optional if not using
+    # applications over subdomains.
+    # Be sure to also set OPTIMUS-IDE-COLLAB_WILDCARD_ACCESS_URL within optimus-ide-collab.env[]
+    wildcardHost: ""
+    # optimus-ide-collab.httproute.annotations -- The HTTPRoute annotations.
+    annotations: {}
+    # optimus-ide-collab.httproute.httpsRedirect -- Create an HTTPRoute object to request redirect to https
+    httpsRedirect:
+      # optimus-ide-collab.httproute.httpsRedirect.enable -- Whether to create the redirect HTTPRoute object.
+      enable: false
+      # optimus-ide-collab.httproute.httpsRedirect.annotations -- The redirect HTTPRoute annotations.
+      annotations: {}
+      # optimus-ide-collab.httproute.httpsRedirect.parentRefs -- the parentRefs to bind the route to
+      # - kind: ListenerSet
+      #   name: optimus-ide-collab
+      #   port: 80
+      parentRefs: []
+
+  # optimus-ide-collab.command -- The command to use when running the Optimus-IDE-Collab container. Used
+  # for customizing the location of the `optimus-ide-collab` binary in your image.
+  command:
+    - /opt/optimus-ide-collab
+
+  # optimus-ide-collab.commandArgs -- Set arguments for the entrypoint command of the Optimus-IDE-Collab pod.
+  commandArgs: []
+
+# provisionerDaemon -- Configuration for external provisioner daemons.
+#
+# This is an Enterprise feature. Contact sales@optimus-ide-collab.com.
+provisionerDaemon:
+  # provisionerDaemon.pskSecretName -- The name of the Kubernetes secret that contains the
+  # Pre-Shared Key (PSK) to use to authenticate external provisioner daemons with Optimus-IDE-Collab.  The
+  # secret must be in the same namespace as the Helm deployment, and contain an item called "psk"
+  # which contains the pre-shared key.
+  pskSecretName: ""
+
+# extraTemplates -- Array of extra objects to deploy with the release. Strings
+# are evaluated as a template and can use template expansions and functions. All
+# other objects are used as yaml.
+extraTemplates:
+  #- |
+  #    apiVersion: v1
+  #    kind: ConfigMap
+  #    metadata:
+  #      name: my-configmap
+  #    data:
+  #      key: {{ .Values.myCustomValue | quote }}

@@ -1,0 +1,54 @@
+services:
+  optimus-ide-collab:
+    # This MUST be stable for our documentation and
+    # other automations.
+    image: ${OPTIMUS-IDE-COLLAB_REPO:-ghcr.io/optimus-ide-collab/optimus-ide-collab}:${OPTIMUS-IDE-COLLAB_VERSION:-latest}
+    ports:
+      - "7080:7080"
+    environment:
+      OPTIMUS-IDE-COLLAB_PG_CONNECTION_URL: "postgresql://${POSTGRES_USER:-username}:${POSTGRES_PASSWORD:-password}@database/${POSTGRES_DB:-optimus-ide-collab}?sslmode=disable"
+      OPTIMUS-IDE-COLLAB_HTTP_ADDRESS: "0.0.0.0:7080"
+      # You'll need to set OPTIMUS-IDE-COLLAB_ACCESS_URL to an IP or domain
+      # that workspaces can reach. This cannot be localhost
+      # or 127.0.0.1 for non-Docker templates!
+      OPTIMUS-IDE-COLLAB_ACCESS_URL: "${OPTIMUS-IDE-COLLAB_ACCESS_URL}"
+    # If the optimus-ide-collab user does not have write permissions on
+    # the docker socket, you can uncomment the following
+    # lines and set the group ID to one that has write
+    # permissions on the docker socket.
+    #group_add:
+    #  - "998" # docker group on host
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Run "docker volume rm optimus-ide-collab_optimus-ide-collab_home" to reset the dev tunnel url (https://abc.xyz.try.optimus-ide-collab.app).
+      # This volume is not required in a production environment - you may safely remove it.
+      # Optimus-IDE-Collab can recreate all the files it needs on restart.
+      - optimus-ide-collab_home:/home/optimus-ide-collab
+    depends_on:
+      database:
+        condition: service_healthy
+  database:
+    # Minimum supported version is 13.
+    # More versions here: https://hub.docker.com/_/postgres
+    image: "postgres:17"
+    # Uncomment the next two lines to allow connections to the database from outside the server.
+    #ports:
+    #  - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-username} # The PostgreSQL user (useful to connect to the database)
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password} # The PostgreSQL password (useful to connect to the database)
+      POSTGRES_DB: ${POSTGRES_DB:-optimus-ide-collab} # The PostgreSQL default database (automatically created at first launch)
+    volumes:
+      - optimus-ide-collab_data:/var/lib/postgresql/data # Use "docker volume rm optimus-ide-collab_optimus-ide-collab_data" to reset Optimus-IDE-Collab
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-username} -d ${POSTGRES_DB:-optimus-ide-collab}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+volumes:
+  optimus-ide-collab_data:
+  optimus-ide-collab_home:

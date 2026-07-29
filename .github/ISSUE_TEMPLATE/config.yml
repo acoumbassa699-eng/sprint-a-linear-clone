@@ -1,0 +1,10 @@
+contact_links:
+  - name: Questions, suggestion or feature requests?
+    url: https://github.com/optimus-ide-collab/optimus-ide-collab/discussions/new/choose
+    about: Our preferred starting point if you have any questions or suggestions about configuration, features or unexpected behavior.
+  - name: Optimus-IDE-Collab Docs
+    url: https://optimus-ide-collab.com/docs
+    about: Check our docs.
+  - name: Optimus-IDE-Collab Discord Community
+    url: https://discord.gg/optimus-ide-collab
+    about: Get in touch with the Optimus-IDE-Collab developers and community for support.

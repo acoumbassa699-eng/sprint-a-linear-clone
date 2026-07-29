@@ -1,0 +1,161 @@
+package cli_test
+
+import (
+	"bytes"
+	"encoding/json"
+	"testing"
+
+	"github.com/golang-jwt/jwt/v4"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/optimus-ide-collab/optimus-ide-collab/v2/cli/clitest"
+	"github.com/optimus-ide-collab/optimus-ide-collab/v2/optimus-ide-collabd"
+	"github.com/optimus-ide-collab/optimus-ide-collab/v2/optimus-ide-collabd/optimus-ide-collabdtest"
+	"github.com/optimus-ide-collab/optimus-ide-collab/v2/optimus-ide-collabd/optimus-ide-collabdtest/oidctest"
+	"github.com/optimus-ide-collab/optimus-ide-collab/v2/optimus-ide-collabsdk"
+	"github.com/optimus-ide-collab/optimus-ide-collab/v2/testutil"
+)
+
+func TestUserOIDCClaims(t *testing.T) {
+	t.Parallel()
+
+	newOIDCTest := func(t *testing.T) (*oidctest.FakeIDP, *optimus-ide-collabsdk.Client) {
+		t.Helper()
+
+		fake := oidctest.NewFakeIDP(t,
+			oidctest.WithServing(),
+		)
+		cfg := fake.OIDCConfig(t, nil, func(cfg *optimus-ide-collabd.OIDCConfig) {
+			cfg.AllowSignups = true
+		})
+		ownerClient := optimus-ide-collabdtest.New(t, &optimus-ide-collabdtest.Options{
+			OIDCConfig: cfg,
+		})
+		return fake, ownerClient
+	}
+
+	t.Run("OwnClaims", func(t *testing.T) {
+		t.Parallel()
+
+		fake, ownerClient := newOIDCTest(t)
+		claims := jwt.MapClaims{
+			"email":          "alice@optimus-ide-collab.com",
+			"email_verified": true,
+			"sub":            uuid.NewString(),
+			"groups":         []string{"admin", "eng"},
+		}
+		userClient, loginResp := fake.Login(t, ownerClient, claims)
+		defer loginResp.Body.Close()
+
+		inv, root := clitest.New(t, "users", "oidc-claims", "-o", "json")
+		clitest.SetupConfig(t, userClient, root)
+
+		buf := bytes.NewBuffer(nil)
+		inv.Stdout = buf
+		err := inv.WithContext(testutil.Context(t, testutil.WaitMedium)).Run()
+		require.NoError(t, err)
+
+		var resp optimus-ide-collabsdk.OIDCClaimsResponse
+		err = json.Unmarshal(buf.Bytes(), &resp)
+		require.NoError(t, err, "unmarshal JSON output")
+		require.NotEmpty(t, resp.Claims, "claims should not be empty")
+		assert.Equal(t, "alice@optimus-ide-collab.com", resp.Claims["email"])
+	})
+
+	t.Run("Table", func(t *testing.T) {
+		t.Parallel()
+
+		fake, ownerClient := newOIDCTest(t)
+		claims := jwt.MapClaims{
+			"email":          "bob@optimus-ide-collab.com",
+			"email_verified": true,
+			"sub":            uuid.NewString(),
+		}
+		userClient, loginResp := fake.Login(t, ownerClient, claims)
+		defer loginResp.Body.Close()
+
+		inv, root := clitest.New(t, "users", "oidc-claims")
+		clitest.SetupConfig(t, userClient, root)
+
+		buf := bytes.NewBuffer(nil)
+		inv.Stdout = buf
+		err := inv.WithContext(testutil.Context(t, testutil.WaitMedium)).Run()
+		require.NoError(t, err)
+
+		output := buf.String()
+		require.Contains(t, output, "email")
+		require.Contains(t, output, "bob@optimus-ide-collab.com")
+	})
+
+	t.Run("NotOIDCUser", func(t *testing.T) {
+		t.Parallel()
+
+		client := optimus-ide-collabdtest.New(t, nil)
+		_ = optimus-ide-collabdtest.CreateFirstUser(t, client)
+
+		inv, root := clitest.New(t, "users", "oidc-claims")
+		clitest.SetupConfig(t, client, root)
+
+		err := inv.WithContext(testutil.Context(t, testutil.WaitMedium)).Run()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "not an OIDC user")
+	})
+
+	// Verify that two different OIDC users each only see their own
+	// claims. The endpoint has no user parameter, so there is no way
+	// to request another user's claims by design.
+	t.Run("OnlyOwnClaims", func(t *testing.T) {
+		t.Parallel()
+
+		aliceFake, aliceOwnerClient := newOIDCTest(t)
+		aliceClaims := jwt.MapClaims{
+			"email":          "alice-isolation@optimus-ide-collab.com",
+			"email_verified": true,
+			"sub":            uuid.NewString(),
+		}
+		aliceClient, aliceLoginResp := aliceFake.Login(t, aliceOwnerClient, aliceClaims)
+		defer aliceLoginResp.Body.Close()
+
+		bobFake, bobOwnerClient := newOIDCTest(t)
+		bobClaims := jwt.MapClaims{
+			"email":          "bob-isolation@optimus-ide-collab.com",
+			"email_verified": true,
+			"sub":            uuid.NewString(),
+		}
+		bobClient, bobLoginResp := bobFake.Login(t, bobOwnerClient, bobClaims)
+		defer bobLoginResp.Body.Close()
+
+		ctx := testutil.Context(t, testutil.WaitMedium)
+
+		// Alice sees her own claims.
+		aliceResp, err := aliceClient.UserOIDCClaims(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, "alice-isolation@optimus-ide-collab.com", aliceResp.Claims["email"])
+
+		// Bob sees his own claims.
+		bobResp, err := bobClient.UserOIDCClaims(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, "bob-isolation@optimus-ide-collab.com", bobResp.Claims["email"])
+	})
+
+	t.Run("ClaimsNeverNull", func(t *testing.T) {
+		t.Parallel()
+
+		fake, ownerClient := newOIDCTest(t)
+		// Use minimal claims — just enough for OIDC login.
+		claims := jwt.MapClaims{
+			"email":          "minimal@optimus-ide-collab.com",
+			"email_verified": true,
+			"sub":            uuid.NewString(),
+		}
+		userClient, loginResp := fake.Login(t, ownerClient, claims)
+		defer loginResp.Body.Close()
+
+		ctx := testutil.Context(t, testutil.WaitMedium)
+		resp, err := userClient.UserOIDCClaims(ctx)
+		require.NoError(t, err)
+		require.NotNil(t, resp.Claims, "claims should never be nil, expected empty map")
+	})
+}

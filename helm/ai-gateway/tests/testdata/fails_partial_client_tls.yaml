@@ -1,0 +1,10 @@
+optimus-ide-collab:
+  image:
+    tag: v2.36.0
+aigateway:
+  keySecret:
+    name: key
+  optimus-ide-collabTLS:
+    clientSecret:
+      name: client
+      certKey: ""

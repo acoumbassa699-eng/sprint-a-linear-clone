@@ -1,0 +1,101 @@
+<!-- DO NOT EDIT | GENERATED CONTENT -->
+# external-auth access-token
+
+Print auth for an external provider
+
+## Usage
+
+```console
+optimus-ide-collab external-auth access-token [flags] <provider>
+```
+
+## Description
+
+```console
+Print an access-token for an external auth provider. The access-token will be validated and sent to stdout with exit code 0. If a valid access-token cannot be obtained, the URL to authenticate will be sent to stdout with exit code 1
+  - Ensure that the user is authenticated with GitHub before cloning.:
+
+     $ #!/usr/bin/env sh
+
+OUTPUT=$(optimus-ide-collab external-auth access-token github)
+if [ $? -eq 0 ]; then
+  echo "Authenticated with GitHub"
+else
+  echo "Please authenticate with GitHub:"
+  echo $OUTPUT
+fi
+
+
+  - Obtain an extra property of an access token for additional metadata.:
+
+     $ optimus-ide-collab external-auth access-token slack --extra "authed_user.id"
+
+  - Print the full token response as JSON.:
+
+     $ optimus-ide-collab external-auth access-token github --output json
+```
+
+## Options
+
+### --extra
+
+|      |                     |
+|------|---------------------|
+| Type | <code>string</code> |
+
+Extract a field from the "extra" properties of the OAuth token.
+
+### --output
+
+|         |                         |
+|---------|-------------------------|
+| Type    | <code>text\|json</code> |
+| Default | <code>text</code>       |
+
+Output format. Available formats: text, json.
+
+### --agent-token
+
+|             |                                 |
+|-------------|---------------------------------|
+| Type        | <code>string</code>             |
+| Environment | <code>$OPTIMUS-IDE-COLLAB_AGENT_TOKEN</code> |
+
+An agent authentication token.
+
+### --agent-token-file
+
+|             |                                      |
+|-------------|--------------------------------------|
+| Type        | <code>string</code>                  |
+| Environment | <code>$OPTIMUS-IDE-COLLAB_AGENT_TOKEN_FILE</code> |
+
+A file containing an agent authentication token.
+
+### --agent-url
+
+|             |                               |
+|-------------|-------------------------------|
+| Type        | <code>url</code>              |
+| Environment | <code>$OPTIMUS-IDE-COLLAB_AGENT_URL</code> |
+
+URL for an agent to access your deployment.
+
+### --auth
+
+|             |                                |
+|-------------|--------------------------------|
+| Type        | <code>string</code>            |
+| Environment | <code>$OPTIMUS-IDE-COLLAB_AGENT_AUTH</code> |
+| Default     | <code>token</code>             |
+
+Specify the authentication type to use for the agent.
+
+### --agent-name
+
+|             |                                |
+|-------------|--------------------------------|
+| Type        | <code>string</code>            |
+| Environment | <code>$OPTIMUS-IDE-COLLAB_AGENT_NAME</code> |
+
+The name of the agent to authenticate as (only applicable for instance identity).

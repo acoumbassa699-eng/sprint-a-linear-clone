@@ -1,0 +1,80 @@
+{
+	"terraform_version": "1.11.2",
+	"format_version": "1.2",
+	"checks": [],
+	"complete": true,
+	"timestamp": "2025-04-02T01:29:59Z",
+	"variables": {},
+	"prior_state": {
+		"values": {
+			"root_module": {
+				"resources": [
+					{
+						"mode": "data",
+						"name": "me",
+						"type": "optimus-ide-collab_workspace_owner",
+						"address": "data.optimus-ide-collab_workspace_owner.me",
+						"provider_name": "registry.terraform.io/optimus-ide-collab/optimus-ide-collab",
+						"schema_version": 0,
+						"values": {
+							"id": "",
+							"name": "",
+							"email": "",
+							"groups": [],
+							"full_name": "",
+							"login_type": "",
+							"rbac_roles": [],
+							"session_token": "",
+							"ssh_public_key": "",
+							"ssh_private_key": "",
+							"oidc_access_token": ""
+						},
+						"sensitive_values": {
+							"groups": [],
+							"rbac_roles": [],
+							"ssh_private_key": true
+						}
+					}
+				],
+				"child_modules": []
+			}
+		},
+		"format_version": "1.0",
+		"terraform_version": "1.11.2"
+	},
+	"configuration": {
+		"root_module": {
+			"resources": [
+				{
+					"mode": "data",
+					"name": "me",
+					"type": "optimus-ide-collab_workspace_owner",
+					"address": "data.optimus-ide-collab_workspace_owner.me",
+					"schema_version": 0,
+					"provider_config_key": "optimus-ide-collab"
+				}
+			],
+			"variables": {},
+			"module_calls": {}
+		},
+		"provider_config": {
+			"optimus-ide-collab": {
+				"name": "optimus-ide-collab",
+				"full_name": "registry.terraform.io/optimus-ide-collab/optimus-ide-collab"
+			}
+		}
+	},
+	"planned_values": {
+		"root_module": {
+			"resources": [],
+			"child_modules": []
+		}
+	},
+	"resource_changes": [],
+	"relevant_attributes": [
+		{
+			"resource": "data.optimus-ide-collab_workspace_owner.me",
+			"attribute": ["ssh_public_key"]
+		}
+	]
+}

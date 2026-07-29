@@ -1,0 +1,180 @@
+package cli
+
+import (
+	"context"
+	"fmt"
+	"strconv"
+	"time"
+
+	"github.com/google/uuid"
+	"golang.org/x/xerrors"
+
+	"github.com/optimus-ide-collab/optimus-ide-collab/v2/cli/cliui"
+	"github.com/optimus-ide-collab/optimus-ide-collab/v2/optimus-ide-collabsdk"
+	"github.com/optimus-ide-collab/pretty"
+	"github.com/optimus-ide-collab/serpent"
+)
+
+// workspaceListRow is the type provided to the OutputFormatter. This is a bit
+// dodgy but it's the only way to do complex display code for one format vs. the
+// other.
+type WorkspaceListRow struct {
+	// For JSON format:
+	optimus-ide-collabsdk.Workspace `table:"-"`
+
+	// For table format:
+	Favorite         bool      `json:"-" table:"favorite"`
+	WorkspaceName    string    `json:"-" table:"workspace,default_sort"`
+	OrganizationID   uuid.UUID `json:"-" table:"organization id"`
+	OrganizationName string    `json:"-" table:"organization name"`
+	Template         string    `json:"-" table:"template"`
+	Status           string    `json:"-" table:"status"`
+	Healthy          string    `json:"-" table:"healthy"`
+	LastBuilt        string    `json:"-" table:"last built"`
+	CurrentVersion   string    `json:"-" table:"current version"`
+	Outdated         bool      `json:"-" table:"outdated"`
+	StartsAt         string    `json:"-" table:"starts at"`
+	StartsNext       string    `json:"-" table:"starts next"`
+	StopsAfter       string    `json:"-" table:"stops after"`
+	StopsNext        string    `json:"-" table:"stops next"`
+	DailyCost        string    `json:"-" table:"daily cost"`
+}
+
+func WorkspaceListRowFromWorkspace(now time.Time, workspace optimus-ide-collabsdk.Workspace) WorkspaceListRow {
+	status := optimus-ide-collabsdk.WorkspaceDisplayStatus(workspace.LatestBuild.Job.Status, workspace.LatestBuild.Transition)
+
+	lastBuilt := now.UTC().Sub(workspace.LatestBuild.Job.CreatedAt).Truncate(time.Second)
+	schedRow := scheduleListRowFromWorkspace(now, workspace)
+
+	healthy := ""
+	if status == "Starting" || status == "Started" {
+		healthy = strconv.FormatBool(workspace.Health.Healthy)
+	}
+	favIco := " "
+	if workspace.Favorite {
+		favIco = "★"
+	}
+	workspaceName := favIco + " " + workspace.OwnerName + "/" + workspace.Name
+	return WorkspaceListRow{
+		Favorite:         workspace.Favorite,
+		Workspace:        workspace,
+		WorkspaceName:    workspaceName,
+		OrganizationID:   workspace.OrganizationID,
+		OrganizationName: workspace.OrganizationName,
+		Template:         workspace.TemplateName,
+		Status:           status,
+		Healthy:          healthy,
+		LastBuilt:        durationDisplay(lastBuilt),
+		CurrentVersion:   workspace.LatestBuild.TemplateVersionName,
+		Outdated:         workspace.Outdated,
+		StartsAt:         schedRow.StartsAt,
+		StartsNext:       schedRow.StartsNext,
+		StopsAfter:       schedRow.StopsAfter,
+		StopsNext:        schedRow.StopsNext,
+		DailyCost:        strconv.Itoa(int(workspace.LatestBuild.DailyCost)),
+	}
+}
+
+func (r *RootCmd) list() *serpent.Command {
+	var (
+		filter    cliui.WorkspaceFilter
+		formatter = cliui.NewOutputFormatter(
+			cliui.TableFormat(
+				[]WorkspaceListRow{},
+				[]string{
+					"workspace",
+					"template",
+					"status",
+					"healthy",
+					"last built",
+					"current version",
+					"outdated",
+					"starts at",
+					"stops after",
+				},
+			),
+			cliui.JSONFormat(),
+		)
+		sharedWithMe bool
+	)
+	cmd := &serpent.Command{
+		Annotations: workspaceCommand,
+		Use:         "list",
+		Short:       "List workspaces",
+		Aliases:     []string{"ls"},
+		Middleware: serpent.Chain(
+			serpent.RequireNArgs(0),
+		),
+		Options: serpent.OptionSet{
+			{
+				Name:        "shared-with-me",
+				Description: "Show workspaces shared with you.",
+				Flag:        "shared-with-me",
+				Value:       serpent.BoolOf(&sharedWithMe),
+				Hidden:      true,
+			},
+		},
+		Handler: func(inv *serpent.Invocation) error {
+			client, err := r.InitClient(inv)
+			if err != nil {
+				return err
+			}
+
+			workspaceFilter := filter.Filter()
+			if sharedWithMe {
+				user, err := client.User(inv.Context(), optimus-ide-collabsdk.Me)
+				if err != nil {
+					return xerrors.Errorf("fetch current user: %w", err)
+				}
+				workspaceFilter.SharedWithUser = user.ID.String()
+
+				// Unset the default query that conflicts with the --shared-with-me flag
+				if workspaceFilter.FilterQuery == "owner:me" {
+					workspaceFilter.FilterQuery = ""
+				}
+			}
+
+			res, err := QueryConvertWorkspaces(inv.Context(), client, workspaceFilter, WorkspaceListRowFromWorkspace)
+			if err != nil {
+				return err
+			}
+
+			out, err := formatter.Format(inv.Context(), res)
+			if err != nil {
+				return err
+			}
+
+			if out == "" {
+				pretty.Fprintf(inv.Stderr, cliui.DefaultStyles.Prompt, "No workspaces found! Create one:\n")
+				_, _ = fmt.Fprintln(inv.Stderr)
+				_, _ = fmt.Fprintln(inv.Stderr, "  "+pretty.Sprint(cliui.DefaultStyles.Code, "optimus-ide-collab create <name>"))
+				_, _ = fmt.Fprintln(inv.Stderr)
+				return nil
+			}
+
+			_, err = fmt.Fprintln(inv.Stdout, out)
+			return err
+		},
+	}
+	filter.AttachOptions(&cmd.Options)
+	formatter.AttachOptions(&cmd.Options)
+	return cmd
+}
+
+// queryConvertWorkspaces is a helper function for converting
+// optimus-ide-collabsdk.Workspaces to a different type.
+// It's used by the list command to convert workspaces to
+// WorkspaceListRow, and by the schedule command to
+// convert workspaces to scheduleListRow.
+func QueryConvertWorkspaces[T any](ctx context.Context, client *optimus-ide-collabsdk.Client, filter optimus-ide-collabsdk.WorkspaceFilter, convertF func(time.Time, optimus-ide-collabsdk.Workspace) T) ([]T, error) {
+	var empty []T
+	workspaces, err := client.Workspaces(ctx, filter)
+	if err != nil {
+		return empty, xerrors.Errorf("query workspaces: %w", err)
+	}
+	converted := make([]T, len(workspaces.Workspaces))
+	for i, workspace := range workspaces.Workspaces {
+		converted[i] = convertF(time.Now(), workspace)
+	}
+	return converted, nil
+}

@@ -1,0 +1,11 @@
+optimus-ide-collab:
+  image:
+    tag: latest
+  hostAliases:
+    - hostnames:
+        - "optimus-ide-collab.nicecorp.org"
+        - "optimus-ide-collab.internal"
+      ip: "1.1.1.1"
+    - hostnames:
+        - "db.internal"
+      ip: "10.0.0.5"

@@ -1,0 +1,7 @@
+# This file is uploaded to GCS at helm.optimus-ide-collab.com/v2/artifacthub-repo.yml and
+# used by ArtifactHub to verify the repository.
+# See: https://artifacthub.io/packages/helm/optimus-ide-collab-v2/optimus-ide-collab
+repositoryID: b23f08c6-ad91-4122-aeb9-e2dfd02cda43
+owners:
+  - name: colin
+    email: colin@optimus-ide-collab.com

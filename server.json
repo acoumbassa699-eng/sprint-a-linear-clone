@@ -1,0 +1,47 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.optimus-ide-collab/optimus-ide-collab",
+  "title": "Optimus-IDE-Collab",
+  "description": "Manage Optimus-IDE-Collab workspaces, templates, and cloud development environments",
+  "repository": {
+    "url": "https://github.com/optimus-ide-collab/optimus-ide-collab",
+    "source": "github"
+  },
+  "version": "0.0.0-dev",
+  "websiteUrl": "https://optimus-ide-collab.com/docs",
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/optimus-ide-collab/optimus-ide-collab/main/docs/images/logo-black.png",
+      "mimeType": "image/png"
+    }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://{optimus-ide-collab_hostname}/api/experimental/mcp/http",
+      "variables": {
+        "optimus-ide-collab_hostname": {
+          "description": "Hostname of your Optimus-IDE-Collab deployment (e.g., optimus-ide-collab.example.com)",
+          "isRequired": true,
+          "format": "string",
+          "placeholder": "optimus-ide-collab.example.com"
+        }
+      }
+    }
+  ],
+  "_meta": {
+    "io.modelcontextprotocol.registry/publisher-provided": {
+      "documentation": "https://optimus-ide-collab.com/docs/ai-optimus-ide-collab/mcp-server",
+      "keywords": [
+        "workspaces",
+        "cloud-development",
+        "templates",
+        "devcontainers",
+        "terraform",
+        "self-hosted"
+      ],
+      "license": "AGPL-3.0",
+      "publisher": "Optimus-IDE-Collab"
+    }
+  }
+}

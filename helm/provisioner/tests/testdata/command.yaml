@@ -1,0 +1,5 @@
+optimus-ide-collab:
+  image:
+    tag: latest
+  command:
+    - /opt/colin

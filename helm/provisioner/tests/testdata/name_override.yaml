@@ -1,0 +1,16 @@
+optimus-ide-collab:
+  image:
+    tag: latest
+  serviceAccount:
+    name: other-optimus-ide-collab-provisioner
+nameOverride: "other-optimus-ide-collab-provisioner"
+# Note that extraTemplates does not respect nameOverride.
+extraTemplates:
+  - |
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: some-config
+      namespace: {{ .Release.Namespace }}
+    data:
+      key: some-value

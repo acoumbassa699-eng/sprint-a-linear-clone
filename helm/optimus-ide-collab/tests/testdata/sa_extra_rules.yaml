@@ -1,0 +1,17 @@
+optimus-ide-collab:
+  image:
+    tag: latest
+
+  serviceAccount:
+    extraRules:
+      - apiGroups: [""]
+        resources: ["services"]
+        verbs:
+          - create
+          - delete
+          - deletecollection
+          - get
+          - list
+          - patch
+          - update
+          - watch

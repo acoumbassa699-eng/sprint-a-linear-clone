@@ -1,0 +1,14 @@
+optimus-ide-collab:
+  image:
+    tag: v2.36.0
+  env:
+    - name: OPTIMUS-IDE-COLLAB_URL
+      value: http://optimus-ide-collab.default.svc.cluster.local:80
+aigateway:
+  keySecret:
+    name: ai-gateway-key
+  listenerTLS:
+    name: listener-tls
+ingress:
+  enable: true
+  host: ai.example.com

@@ -1,0 +1,9 @@
+{
+	"name": "Develop Optimus-IDE-Collab on Optimus-IDE-Collab using Envbuilder",
+	"build": {
+		"dockerfile": "Dockerfile"
+	},
+
+	"features": {},
+	"runArgs": ["--cap-add=SYS_PTRACE"]
+}

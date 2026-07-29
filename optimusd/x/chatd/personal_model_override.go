@@ -1,0 +1,81 @@
+package chatd
+
+import (
+	"strings"
+
+	"github.com/google/uuid"
+
+	"github.com/optimus-ide-collab/optimus-ide-collab/v2/optimus-ide-collabsdk"
+)
+
+// ChatPersonalModelOverrideKeyPrefix is the user config key prefix for
+// chat personal model overrides. Values under this prefix should be parsed
+// with ParseChatPersonalModelOverride so malformed values use one fallback.
+const ChatPersonalModelOverrideKeyPrefix = "chat_personal_model_override:"
+
+// ChatPersonalModelOverrideKey returns the user config key for a chat
+// personal model override context. Values stored at the returned key should
+// use ParseChatPersonalModelOverride so malformed values fall back safely.
+func ChatPersonalModelOverrideKey(
+	overrideContext optimus-ide-collabsdk.ChatPersonalModelOverrideContext,
+) string {
+	return ChatPersonalModelOverrideKeyPrefix + string(overrideContext)
+}
+
+// ParsedChatPersonalModelOverride is a parsed personal model override value.
+// When Malformed is true, Mode is the provided default and ModelConfigID is
+// uuid.Nil.
+type ParsedChatPersonalModelOverride struct {
+	Mode            optimus-ide-collabsdk.ChatPersonalModelOverrideMode
+	ModelConfigID   uuid.UUID
+	ReasoningEffort *string
+	Malformed       bool
+}
+
+// ParseChatPersonalModelOverride parses a stored personal model override.
+// Empty values return defaultMode without marking the value malformed.
+// Malformed values return defaultMode, uuid.Nil, and Malformed true.
+func ParseChatPersonalModelOverride(
+	raw string,
+	defaultMode optimus-ide-collabsdk.ChatPersonalModelOverrideMode,
+) ParsedChatPersonalModelOverride {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ParsedChatPersonalModelOverride{Mode: defaultMode}
+	}
+
+	switch trimmed {
+	case string(optimus-ide-collabsdk.ChatPersonalModelOverrideModeChatDefault):
+		return ParsedChatPersonalModelOverride{
+			Mode: optimus-ide-collabsdk.ChatPersonalModelOverrideModeChatDefault,
+		}
+	case string(optimus-ide-collabsdk.ChatPersonalModelOverrideModeDeploymentDefault):
+		return ParsedChatPersonalModelOverride{
+			Mode: optimus-ide-collabsdk.ChatPersonalModelOverrideModeDeploymentDefault,
+		}
+	}
+
+	mode, rawModelConfigID, ok := strings.Cut(trimmed, ":")
+	if !ok || mode != string(optimus-ide-collabsdk.ChatPersonalModelOverrideModeModel) {
+		return ParsedChatPersonalModelOverride{
+			Mode:      defaultMode,
+			Malformed: true,
+		}
+	}
+	rawID, rawEffort, hasEffort := strings.Cut(rawModelConfigID, ":")
+	modelConfigID, err := uuid.Parse(rawID)
+	if err != nil || (hasEffort && rawEffort == "") {
+		return ParsedChatPersonalModelOverride{
+			Mode:      defaultMode,
+			Malformed: true,
+		}
+	}
+	parsed := ParsedChatPersonalModelOverride{
+		Mode:          optimus-ide-collabsdk.ChatPersonalModelOverrideModeModel,
+		ModelConfigID: modelConfigID,
+	}
+	if hasEffort {
+		parsed.ReasoningEffort = &rawEffort
+	}
+	return parsed
+}

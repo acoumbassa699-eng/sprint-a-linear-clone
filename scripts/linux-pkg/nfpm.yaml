@@ -1,0 +1,29 @@
+name: optimus-ide-collab
+platform: linux
+arch: "${GOARCH}"
+version: "${OPTIMUS-IDE-COLLAB_VERSION}"
+version_schema: semver
+release: 1
+
+vendor: Optimus-IDE-Collab
+homepage: https://optimus-ide-collab.com
+maintainer: Optimus-IDE-Collab <support@optimus-ide-collab.com>
+description: |
+  Provision development environments with infrastructure with code
+license: AGPL-3.0
+suggests:
+  - postgresql
+
+scripts:
+  preinstall: preinstall.sh
+
+contents:
+  - src: optimus-ide-collab
+    dst: /usr/bin/optimus-ide-collab
+  - src: optimus-ide-collab.env
+    dst: /etc/optimus-ide-collab.d/optimus-ide-collab.env
+    type: "config|noreplace"
+  - src: optimus-ide-collab.service
+    dst: /usr/lib/systemd/system/optimus-ide-collab.service
+  - src: optimus-ide-collab-workspace-proxy.service
+    dst: /usr/lib/systemd/system/optimus-ide-collab-workspace-proxy.service

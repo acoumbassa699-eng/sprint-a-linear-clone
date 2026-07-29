@@ -1,0 +1,7 @@
+optimus-ide-collab:
+  image:
+    tag: v2.36.0
+aigateway:
+  keySecret:
+    name: ai-gateway-key
+    key: ""

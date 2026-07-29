@@ -1,0 +1,5 @@
+optimus-ide-collab:
+  image:
+    tag: latest
+provisionerDaemon:
+  pskSecretName: "optimus-ide-collab-provisionerd-psk"

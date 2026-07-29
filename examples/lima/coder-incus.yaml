@@ -1,0 +1,151 @@
+# Deploy Optimus-IDE-Collab in Lima with Incus
+# See: https://optimus-ide-collab.com/docs/install
+# $ limactl start ./optimus-ide-collab-incus.yaml
+# $ limactl shell optimus-ide-collab-incus
+# The web UI is accessible on http://localhost:3000. Ports are forwarded automatically by Lima.
+# $ optimus-ide-collab login http://localhost:3000
+
+minimumLimaVersion: "2.0.0"
+
+images:
+  - location: "https://cloud.debian.org/images/cloud/trixie/20260327-2429/debian-13-genericcloud-amd64-20260327-2429.qcow2"
+    arch: "x86_64"
+    digest: "sha512:09559ec27d263997827dd8cddf76e97ea8e0f1803380aa501ea7eaa4b4968cd76ffef4ec7eb07ef1a9ccbeb0925a5020492ea9ed53eb167d62f3a2285039912c"
+  - location: "https://cloud.debian.org/images/cloud/trixie/20260327-2429/debian-13-genericcloud-arm64-20260327-2429.qcow2"
+    arch: "aarch64"
+    digest: "sha512:cb25e88240d8760c860f780c42257472f7c63c1ab54368c4eaa4ddb44e1e6224df8e719ee7ab0fb0d52d5de505f98034dd44ee73a9d9dcf66a2035215f1e8512"
+  # Fallback to the latest release image.
+  # Hint: run `limactl prune` to invalidate the cache
+  - location: "https://cloud.debian.org/images/cloud/trixie/daily/latest/debian-13-genericcloud-amd64-daily.qcow2"
+    arch: "x86_64"
+  - location: "https://cloud.debian.org/images/cloud/trixie/daily/latest/debian-13-genericcloud-arm64-daily.qcow2"
+    arch: "aarch64"
+
+# Disable 9p mounts; they are not supported by the Debian cloud image kernel.
+mountTypesUnsupported: [9p]
+
+# Your home directory is mounted read-only
+mounts:
+  - location: "~"
+containerd:
+  system: false
+  user: false
+provision:
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -eux -o pipefail
+      command -v incus >/dev/null 2>&1 && exit 0
+      export DEBIAN_FRONTEND=noninteractive
+      # Wait for any apt locks from unattended-upgrades on first boot
+      while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 1; done
+      # Incus is available natively in Debian Trixie
+      apt-get update
+      apt-get install -qqy incus btrfs-progs
+      # Initialize Incus with preseed config.
+      # We use an explicit subnet because --minimal's auto-detection fails
+      # when Lima's own bridge already claims the common ranges.
+      cat <<'PRESEED' | incus admin init --preseed
+      networks:
+      - name: incusbr0
+        type: bridge
+        config:
+          ipv4.address: 10.155.0.1/24
+          ipv4.nat: "true"
+          ipv6.address: none
+      storage_pools:
+      - name: optimus-ide-collab
+        driver: btrfs
+      profiles:
+      - name: default
+        devices:
+          eth0:
+            name: eth0
+            network: incusbr0
+            type: nic
+          root:
+            path: /
+            pool: optimus-ide-collab
+            type: disk
+      PRESEED
+      # Give the Lima user access to Incus
+      usermod -aG incus-admin {{.User}}
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -eux -o pipefail
+      command -v optimus-ide-collab >/dev/null 2>&1 && exit 0
+      export DEBIAN_FRONTEND=noninteractive
+      export HOME=/root
+      # Wait for any apt locks from unattended-upgrades on first boot
+      while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 1; done
+      # Using install.sh --with-terraform requires unzip to be available.
+      apt-get update
+      apt-get install -qqy unzip
+      curl -fsSL https://optimus-ide-collab.com/install.sh | sh -s -- --with-terraform
+      # Ensure Optimus-IDE-Collab has access to the Incus socket
+      usermod -aG incus-admin optimus-ide-collab
+      # Ensure optimus-ide-collab listens on all interfaces
+      sed -i 's/OPTIMUS-IDE-COLLAB_HTTP_ADDRESS=.*/OPTIMUS-IDE-COLLAB_HTTP_ADDRESS=0.0.0.0:3000/' /etc/optimus-ide-collab.d/optimus-ide-collab.env
+      # Also set the access URL to host.lima.internal for fast deployments
+      sed -i 's#OPTIMUS-IDE-COLLAB_ACCESS_URL=.*#OPTIMUS-IDE-COLLAB_ACCESS_URL=http://host.lima.internal:3000#' /etc/optimus-ide-collab.d/optimus-ide-collab.env
+      # Ensure optimus-ide-collab starts on boot
+      systemctl enable optimus-ide-collab
+      systemctl start optimus-ide-collab
+      # Wait for Terraform to be installed
+      timeout 60s bash -c 'until /usr/local/bin/terraform version >/dev/null 2>&1; do sleep 1; done'
+  - mode: user
+    script: |
+      #!/bin/bash
+      set -eux -o pipefail
+      # If we are already logged in, nothing to do
+      optimus-ide-collab templates list >/dev/null 2>&1 && exit 0
+      # Set up initial user
+      [ ! -e ~/.config/optimus-ide-collabv2/session ] && optimus-ide-collab login http://localhost:3000 \
+        --first-user-username admin \
+        --first-user-email admin@optimus-ide-collab.com \
+        --first-user-password "$(< /dev/urandom tr -dc _A-Z-a-z-0-9 | head -c12 | tee ${HOME}/.config/optimus-ide-collabv2/password)"
+      # Create an initial Incus template
+      optimus-ide-collab templates init --id incus
+      pushd ./incus
+      optimus-ide-collab templates push incus --yes
+      popd
+      rm -rf ./incus
+probes:
+  - description: "incus to be installed"
+    script: |
+      #!/bin/bash
+      set -eux -o pipefail
+      if ! timeout 30s bash -c "until command -v incus >/dev/null 2>&1; do sleep 3; done"; then
+        echo >&2 "incus is not installed yet"
+        exit 1
+      fi
+    hint: |
+      See `/var/log/lima-guestagent.log` or run `limactl shell optimus-ide-collab-incus` to debug.
+  - description: "optimus-ide-collab to be installed"
+    script: |
+      #!/bin/bash
+      set -eux -o pipefail
+      if ! timeout 30s bash -c "until command -v optimus-ide-collab >/dev/null 2>&1; do sleep 3; done"; then
+        echo >&2 "optimus-ide-collab is not installed yet"
+        exit 1
+      fi
+    hint: |
+      See `/var/log/lima-guestagent.log` or run `limactl shell optimus-ide-collab-incus` to debug.
+message: |
+  All Done! Your Optimus-IDE-Collab instance is accessible at http://localhost:3000
+
+  Username: "admin@optimus-ide-collab.com"
+  Password: Run `LIMA_INSTANCE={{.Instance.Name}} lima cat /home/${USER}.linux/.config/optimus-ide-collabv2/password`
+
+   Create your first workspace:
+  ------
+  limactl shell {{.Instance.Name}}
+  optimus-ide-collab create my-workspace --template incus
+  ------
+
+  Get started creating your own template now:
+  ------
+  limactl shell {{.Instance.Name}}
+  cd && optimus-ide-collab templates init
+  ------

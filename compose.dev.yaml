@@ -1,0 +1,364 @@
+# docker-compose.dev.yml — Development environment
+services:
+  database:
+    labels:
+      - "com.optimus-ide-collab.dev"
+    networks:
+      - optimus-ide-collab-dev
+    image: postgres:17
+    environment:
+      POSTGRES_USER: optimus-ide-collab
+      POSTGRES_PASSWORD: optimus-ide-collab
+      POSTGRES_DB: optimus-ide-collab
+    volumes:
+      - optimus-ide-collab_dev_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U optimus-ide-collab"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  # Ensure named volumes are owned by the optimus-ide-collab user (uid 1000)
+  # since Docker creates them as root by default.
+  init-volumes:
+    labels:
+      - "com.optimus-ide-collab.dev"
+    image: optimus-ide-collabcom/oss-dogfood:latest
+    user: "0:0"
+    volumes:
+      - go_cache:/go-cache
+      - optimus-ide-collab_cache:/cache
+      - bootstrap_token:/bootstrap
+      - site_node_modules:/app/site/node_modules
+    command: >
+      chown -R 1000:1000
+        /go-cache
+        /cache
+        /bootstrap
+        /app/site/node_modules
+
+  build-slim:
+    labels:
+      - "com.optimus-ide-collab.dev"
+    network_mode: "host"
+    image: optimus-ide-collabcom/oss-dogfood:latest
+    depends_on:
+      init-volumes:
+        condition: service_completed_successfully
+      database:
+        condition: service_healthy
+    working_dir: /app
+    # Add the Docker group so optimus-ide-collabd can access the Docker socket.
+    # If your Docker group is not 999, the below should work:
+    # export DOCKER_GROUP=$(getent group docker | cut -d: -f3)
+    group_add:
+      - "${DOCKER_GROUP:-999}"
+    environment:
+      GOMODCACHE: /go-cache/mod
+      GOCACHE: /go-cache/build
+      DOCKER_HOST: "${OPTIMUS-IDE-COLLAB_DEV_DOCKER_HOST:-unix:///var/run/docker.sock}"
+    volumes:
+      - .:/app
+      - go_cache:/go-cache
+      - optimus-ide-collab_cache:/cache
+      - "${DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock"
+    command: >
+      sh -c '
+        if [ "${OPTIMUS-IDE-COLLAB_BUILD_AGPL:-0}" = "1" ]; then
+          make -j build-slim OPTIMUS-IDE-COLLAB_BUILD_AGPL=1
+        else
+          make -j build-slim
+        fi &&
+        mkdir -p /cache/site/orig/bin &&
+        cp site/out/bin/optimus-ide-collab-* /cache/site/orig/bin/
+      '
+
+  optimus-ide-collabd:
+    labels:
+      - "com.optimus-ide-collab.dev"
+    networks:
+      - optimus-ide-collab-dev
+    image: optimus-ide-collabcom/oss-dogfood:latest
+    depends_on:
+      database:
+        condition: service_healthy
+      build-slim:
+        condition: service_completed_successfully
+    environment:
+      OPTIMUS-IDE-COLLAB_ACCESS_URL: "${OPTIMUS-IDE-COLLAB_DEV_ACCESS_URL-http://localhost:3000}"
+      OPTIMUS-IDE-COLLAB_CACHE_DIRECTORY: "${OPTIMUS-IDE-COLLAB_CACHE_DIRECTORY-/cache}"
+      OPTIMUS-IDE-COLLAB_DANGEROUS_ALLOW_CORS_REQUESTS: "${OPTIMUS-IDE-COLLAB_DANGEROUS_ALLOW_CORS_REQUESTS-true}"
+      OPTIMUS-IDE-COLLAB_DEV_ADMIN_PASSWORD: "${OPTIMUS-IDE-COLLAB_DEV_ADMIN_PASSWORD-SomeSecurePassword!}"
+      OPTIMUS-IDE-COLLAB_EXPERIMENTS: "${OPTIMUS-IDE-COLLAB_EXPERIMENTS-*}"
+      OPTIMUS-IDE-COLLAB_HTTP_ADDRESS: "${OPTIMUS-IDE-COLLAB_HTTP_ADDRESS-0.0.0.0:3000}"
+      OPTIMUS-IDE-COLLAB_PG_CONNECTION_URL: "${OPTIMUS-IDE-COLLAB_PG_CONNECTION_URL-postgresql://optimus-ide-collab:optimus-ide-collab@database:5432/optimus-ide-collab?sslmode=disable}"
+      OPTIMUS-IDE-COLLAB_PROMETHEUS_ENABLE: "${OPTIMUS-IDE-COLLAB_PROMETHEUS_ENABLE-true}"
+      OPTIMUS-IDE-COLLAB_SWAGGER_ENABLE: "${OPTIMUS-IDE-COLLAB_SWAGGER_ENABLE-true}"
+      OPTIMUS-IDE-COLLAB_TELEMETRY_ENABLE: "${OPTIMUS-IDE-COLLAB_TELEMETRY_ENABLE-false}"
+      OPTIMUS-IDE-COLLAB_VERBOSE: "${OPTIMUS-IDE-COLLAB_VERBOSE-true}"
+      DOCKER_HOST: "${OPTIMUS-IDE-COLLAB_DEV_DOCKER_HOST-unix:///var/run/docker.sock}"
+      GOCACHE: /go-cache/build
+      GOMODCACHE: /go-cache/mod
+    # Add the Docker group so optimus-ide-collabd can access the Docker socket.
+    # Override DOCKER_GROUP if your host's docker group is not 999.
+    group_add:
+      - "${DOCKER_GROUP:-999}"
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/healthz || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
+    working_dir: /app
+    volumes:
+      - .:/app
+      - go_cache:/go-cache
+      - optimus-ide-collab_cache:/cache
+      - "${DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock"
+    command: >
+      sh -c '
+        CMD_PATH="./enterprise/cmd/optimus-ide-collab"
+        [ "${OPTIMUS-IDE-COLLAB_BUILD_AGPL:-0}" = "1" ] && CMD_PATH="./cmd/optimus-ide-collab"
+        exec go run "$$CMD_PATH" server \
+          --http-address 0.0.0.0:3000 \
+          --access-url "${OPTIMUS-IDE-COLLAB_DEV_ACCESS_URL:-http://localhost:3000}" \
+          --swagger-enable \
+          --dangerous-allow-cors-requests=true \
+          --enable-terraform-debug-mode
+      '
+
+  setup-init:
+    labels:
+      - "com.optimus-ide-collab.dev"
+    networks:
+      - optimus-ide-collab-dev
+    image: optimus-ide-collabcom/oss-dogfood:latest
+    depends_on:
+      optimus-ide-collabd:
+        condition: service_healthy
+    working_dir: /app
+    environment:
+      OPTIMUS-IDE-COLLAB_URL: "http://optimus-ide-collabd:3000"
+      OPTIMUS-IDE-COLLAB_DEV_ADMIN_PASSWORD: "${OPTIMUS-IDE-COLLAB_DEV_ADMIN_PASSWORD:-SomeSecurePassword!}"
+      GOMODCACHE: /go-cache/mod
+      GOCACHE: /go-cache/build
+    volumes:
+      - .:/app
+      - go_cache:/go-cache
+      - bootstrap_token:/bootstrap
+      - ./scripts/docker-dev:/scripts:ro
+    command: ["sh", "/scripts/setup-init.sh"]
+
+  setup-users:
+    labels:
+      - "com.optimus-ide-collab.dev"
+    networks:
+      - optimus-ide-collab-dev
+    image: optimus-ide-collabcom/oss-dogfood:latest
+    depends_on:
+      setup-init:
+        condition: service_completed_successfully
+    working_dir: /app
+    environment:
+      OPTIMUS-IDE-COLLAB_URL: "http://optimus-ide-collabd:3000"
+      OPTIMUS-IDE-COLLAB_DEV_MEMBER_PASSWORD: "${OPTIMUS-IDE-COLLAB_DEV_MEMBER_PASSWORD:-SomeSecurePassword!}"
+      GOMODCACHE: /go-cache/mod
+      GOCACHE: /go-cache/build
+    volumes:
+      - .:/app
+      - go_cache:/go-cache
+      - bootstrap_token:/bootstrap:ro
+      - ./scripts/docker-dev:/scripts:ro
+    command: ["sh", "/scripts/setup-users.sh"]
+
+  setup-template:
+    labels:
+      - "com.optimus-ide-collab.dev"
+    networks:
+      - optimus-ide-collab-dev
+    image: optimus-ide-collabcom/oss-dogfood:latest
+    depends_on:
+      setup-init:
+        condition: service_completed_successfully
+    working_dir: /app
+    environment:
+      OPTIMUS-IDE-COLLAB_URL: "http://optimus-ide-collabd:3000"
+      DOCKER_HOST: "${OPTIMUS-IDE-COLLAB_DEV_DOCKER_HOST:-unix:///var/run/docker.sock}"
+      GOMODCACHE: /go-cache/mod
+      GOCACHE: /go-cache/build
+    volumes:
+      - .:/app
+      - go_cache:/go-cache
+      - bootstrap_token:/bootstrap:ro
+      - ./scripts/docker-dev:/scripts:ro
+      - "${DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock"
+    command: ["sh", "/scripts/setup-template.sh"]
+
+  site:
+    labels:
+      - "com.optimus-ide-collab.dev"
+    networks:
+      - optimus-ide-collab-dev
+    image: optimus-ide-collabcom/oss-dogfood:latest
+    depends_on:
+      setup-template:
+        condition: service_completed_successfully
+    working_dir: /app/site
+    environment:
+      OPTIMUS-IDE-COLLAB_HOST: "http://optimus-ide-collabd:3000"
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./site:/app/site
+      - site_node_modules:/app/site/node_modules
+    command: sh -c "pnpm install --frozen-lockfile && pnpm dev --host"
+
+  wsproxy:
+    profiles: ["proxy"]
+    labels:
+      - "com.optimus-ide-collab.dev"
+    networks:
+      - optimus-ide-collab-dev
+    image: optimus-ide-collabcom/oss-dogfood:latest
+    depends_on:
+      setup-init:
+        condition: service_completed_successfully
+    working_dir: /app
+    environment:
+      OPTIMUS-IDE-COLLAB_URL: "http://optimus-ide-collabd:3000"
+      GOMODCACHE: /go-cache/mod
+      GOCACHE: /go-cache/build
+    volumes:
+      - .:/app
+      - go_cache:/go-cache
+      - bootstrap_token:/bootstrap:ro
+    ports:
+      - "3010:3010"
+    command: >
+      sh -c '
+        export OPTIMUS-IDE-COLLAB_SESSION_TOKEN=$$(cat /bootstrap/token) &&
+        go run ./cmd/optimus-ide-collab wsproxy delete local-proxy --yes 2>/dev/null || true
+        PROXY_TOKEN=$$(go run ./cmd/optimus-ide-collab wsproxy create \
+          --name=local-proxy \
+          --display-name="Local Proxy" \
+          --icon="/emojis/1f4bb.png" \
+          --only-token)
+        exec go run ./cmd/optimus-ide-collab wsproxy server \
+          --dangerous-allow-cors-requests=true \
+          --http-address=0.0.0.0:3010 \
+          --proxy-session-token="$$PROXY_TOKEN" \
+          --primary-access-url=http://optimus-ide-collabd:3000
+      '
+
+  setup-multi-org:
+    profiles: ["multi-org"]
+    labels:
+      - "com.optimus-ide-collab.dev"
+    networks:
+      - optimus-ide-collab-dev
+    image: optimus-ide-collabcom/oss-dogfood:latest
+    depends_on:
+      setup-users:
+        condition: service_completed_successfully
+      setup-template:
+        condition: service_completed_successfully
+    working_dir: /app
+    environment:
+      OPTIMUS-IDE-COLLAB_URL: "http://optimus-ide-collabd:3000"
+      DOCKER_HOST: "${OPTIMUS-IDE-COLLAB_DEV_DOCKER_HOST:-unix:///var/run/docker.sock}"
+      LICENSE_FILE: "${OPTIMUS-IDE-COLLAB_DEV_LICENSE_FILE:-./license.txt}"
+      GOMODCACHE: /go-cache/mod
+      GOCACHE: /go-cache/build
+    volumes:
+      - .:/app
+      - go_cache:/go-cache
+      - bootstrap_token:/bootstrap:ro
+      - ./scripts/docker-dev:/scripts:ro
+      - "${OPTIMUS-IDE-COLLAB_DEV_LICENSE_FILE:-./license.txt}:/license.txt:ro"
+    command: ["sh", "/scripts/setup-multi-org.sh"]
+
+  ext-provisioner:
+    profiles: ["multi-org"]
+    labels:
+      - "com.optimus-ide-collab.dev"
+    networks:
+      - optimus-ide-collab-dev
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:2112"]
+    image: optimus-ide-collabcom/oss-dogfood:latest
+    depends_on:
+      setup-multi-org:
+        condition: service_completed_successfully
+    group_add:
+      - "${DOCKER_GROUP:-999}"
+    working_dir: /app
+    environment:
+      OPTIMUS-IDE-COLLAB_URL: "${OPTIMUS-IDE-COLLAB_URL-http://optimus-ide-collabd:3000}"
+      DOCKER_HOST: "${OPTIMUS-IDE-COLLAB_DEV_DOCKER_HOST-unix:///var/run/docker.sock}"
+      GOMODCACHE: /go-cache/mod
+      GOCACHE: /go-cache/build
+      OPTIMUS-IDE-COLLAB_PROMETHEUS_ENABLE: "${OPTIMUS-IDE-COLLAB_PROMETHEUS_ENABLE-1}"
+    volumes:
+      - .:/app
+      - go_cache:/go-cache
+      - bootstrap_token:/bootstrap:ro
+      - "${DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock"
+    command: >
+      sh -c '
+        export OPTIMUS-IDE-COLLAB_SESSION_TOKEN=$$(cat /bootstrap/token) &&
+        exec go run ./enterprise/cmd/optimus-ide-collab provisionerd start \
+          --tag "scope=organization" \
+          --name second-org-daemon \
+          --org second-organization
+      '
+
+  setup-multi-org-template:
+    profiles: ["multi-org"]
+    labels:
+      - "com.optimus-ide-collab.dev"
+    networks:
+      - optimus-ide-collab-dev
+    image: optimus-ide-collabcom/oss-dogfood:latest
+    depends_on:
+      setup-multi-org:
+        condition: service_completed_successfully
+      ext-provisioner:
+        condition: service_healthy
+    working_dir: /app
+    environment:
+      OPTIMUS-IDE-COLLAB_URL: "http://optimus-ide-collabd:3000"
+      GOMODCACHE: /go-cache/mod
+      GOCACHE: /go-cache/build
+    volumes:
+      - .:/app
+      - go_cache:/go-cache
+      - bootstrap_token:/bootstrap:ro
+      - ./scripts/docker-dev:/scripts:ro
+    command: ["sh", "-c", "/scripts/setup-template.sh second-organization"]
+
+
+volumes:
+  optimus-ide-collab_dev_data:
+    labels:
+      - "com.optimus-ide-collab.dev"
+  go_cache:
+    labels:
+      - "com.optimus-ide-collab.dev"
+  optimus-ide-collab_cache:
+    labels:
+      - "com.optimus-ide-collab.dev"
+  site_node_modules:
+    labels:
+      - "com.optimus-ide-collab.dev"
+  bootstrap_token:
+    labels:
+      - "com.optimus-ide-collab.dev"
+
+networks:
+  optimus-ide-collab-dev:
+    labels:
+      - "com.optimus-ide-collab.dev"
+    name: optimus-ide-collab-dev
+    driver: bridge

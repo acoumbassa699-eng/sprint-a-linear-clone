@@ -1,0 +1,9 @@
+optimus-ide-collab:
+  image:
+    tag: latest
+  service:
+    type: NodePort
+    prometheusNodePort: 31112
+  env:
+    - name: OPTIMUS-IDE-COLLAB_PROMETHEUS_ENABLE
+      value: "true"

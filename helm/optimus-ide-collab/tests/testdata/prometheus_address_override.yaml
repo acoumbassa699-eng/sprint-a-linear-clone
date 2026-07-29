@@ -1,0 +1,8 @@
+optimus-ide-collab:
+  image:
+    tag: latest
+  env:
+    - name: OPTIMUS-IDE-COLLAB_PROMETHEUS_ADDRESS
+      value: "127.0.0.1:2112"
+    - name: OPTIMUS-IDE-COLLAB_PROMETHEUS_ENABLE
+      value: "true"

@@ -1,0 +1,109 @@
+package cli
+
+import (
+	"fmt"
+	"sort"
+	"sync"
+	"time"
+
+	"github.com/google/uuid"
+	"golang.org/x/xerrors"
+
+	"github.com/optimus-ide-collab/optimus-ide-collab/v2/agent/agentcontainers"
+	"github.com/optimus-ide-collab/optimus-ide-collab/v2/cli/cliui"
+	"github.com/optimus-ide-collab/optimus-ide-collab/v2/optimus-ide-collabsdk"
+	"github.com/optimus-ide-collab/serpent"
+)
+
+func (r *RootCmd) show() *serpent.Command {
+	var details bool
+	return &serpent.Command{
+		Use:   "show <workspace>",
+		Short: "Display details of a workspace's resources and agents",
+		Options: serpent.OptionSet{
+			{
+				Flag:        "details",
+				Description: "Show full error messages and additional details.",
+				Default:     "false",
+				Value:       serpent.BoolOf(&details),
+			},
+		},
+		Middleware: serpent.Chain(
+			serpent.RequireNArgs(1),
+		),
+		Handler: func(inv *serpent.Invocation) error {
+			client, err := r.InitClient(inv)
+			if err != nil {
+				return err
+			}
+
+			buildInfo, err := client.BuildInfo(inv.Context())
+			if err != nil {
+				return xerrors.Errorf("get server version: %w", err)
+			}
+			workspace, err := client.ResolveWorkspace(inv.Context(), inv.Args[0])
+			if err != nil {
+				return xerrors.Errorf("get workspace: %w", err)
+			}
+			options := cliui.WorkspaceResourcesOptions{
+				WorkspaceName: workspace.Name,
+				ServerVersion: buildInfo.Version,
+				ShowDetails:   details,
+				Title:         fmt.Sprintf("%s/%s (%s since %s) %s:%s", workspace.OwnerName, workspace.Name, workspace.LatestBuild.Status, time.Since(workspace.LatestBuild.CreatedAt).Round(time.Second).String(), workspace.TemplateName, workspace.LatestBuild.TemplateVersionName),
+			}
+			if workspace.LatestBuild.Status == optimus-ide-collabsdk.WorkspaceStatusRunning {
+				// Get listening ports for each agent.
+				ports, devcontainers := fetchRuntimeResources(inv, client, workspace.LatestBuild.Resources...)
+				options.ListeningPorts = ports
+				options.Devcontainers = devcontainers
+			}
+			return cliui.WorkspaceResources(inv.Stdout, workspace.LatestBuild.Resources, options)
+		},
+	}
+}
+
+func fetchRuntimeResources(inv *serpent.Invocation, client *optimus-ide-collabsdk.Client, resources ...optimus-ide-collabsdk.WorkspaceResource) (map[uuid.UUID]optimus-ide-collabsdk.WorkspaceAgentListeningPortsResponse, map[uuid.UUID]optimus-ide-collabsdk.WorkspaceAgentListContainersResponse) {
+	ports := make(map[uuid.UUID]optimus-ide-collabsdk.WorkspaceAgentListeningPortsResponse)
+	devcontainers := make(map[uuid.UUID]optimus-ide-collabsdk.WorkspaceAgentListContainersResponse)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	for _, res := range resources {
+		for _, agent := range res.Agents {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				lp, err := client.WorkspaceAgentListeningPorts(inv.Context(), agent.ID)
+				if err != nil {
+					cliui.Warnf(inv.Stderr, "Failed to get listening ports for agent %s: %v", agent.Name, err)
+				}
+				sort.Slice(lp.Ports, func(i, j int) bool {
+					return lp.Ports[i].Port < lp.Ports[j].Port
+				})
+				mu.Lock()
+				ports[agent.ID] = lp
+				mu.Unlock()
+			}()
+
+			if agent.ParentID.Valid {
+				continue
+			}
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				dc, err := client.WorkspaceAgentListContainers(inv.Context(), agent.ID, map[string]string{
+					// Labels set by VSCode Remote Containers and @devcontainers/cli.
+					agentcontainers.DevcontainerConfigFileLabel:  "",
+					agentcontainers.DevcontainerLocalFolderLabel: "",
+				})
+				if err != nil {
+					cliui.Warnf(inv.Stderr, "Failed to get devcontainers for agent %s: %v", agent.Name, err)
+				}
+				mu.Lock()
+				devcontainers[agent.ID] = dc
+				mu.Unlock()
+			}()
+		}
+	}
+	wg.Wait()
+	return ports, devcontainers
+}

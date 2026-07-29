@@ -1,0 +1,8 @@
+optimus-ide-collab:
+  image:
+    tag: latest
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL

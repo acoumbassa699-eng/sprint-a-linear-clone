@@ -1,0 +1,8 @@
+optimus-ide-collab:
+  image:
+    tag: latest
+  serviceAccount:
+    name: optimus-ide-collab-service-account
+    annotations:
+      eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/optimus-ide-collab-service-account
+    workspacePerms: true

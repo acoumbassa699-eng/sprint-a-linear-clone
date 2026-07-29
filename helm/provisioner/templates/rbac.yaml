@@ -1,0 +1,1 @@
+{{ include "liboptimus-ide-collab.rbac.tpl" . }}

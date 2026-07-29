@@ -1,0 +1,29 @@
+{{- if and .Values.optimus-ide-collab.listenerset.enable (empty .Values.optimus-ide-collab.listenerset.parentRef) -}}
+{{- fail "optimus-ide-collab.listenerset.parentRef is required when optimus-ide-collab.listenerset.enable=true" -}}
+{{- end -}}
+
+{{- if and .Values.optimus-ide-collab.listenerset.enable (empty .Values.optimus-ide-collab.listenerset.listeners) -}}
+{{- fail "optimus-ide-collab.listenerset.listeners is required when optimus-ide-collab.listenerset.enable=true" -}}
+{{- end -}}
+
+{{- if .Values.optimus-ide-collab.listenerset.enable -}}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: ListenerSet
+metadata:
+  name: optimus-ide-collab
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "optimus-ide-collab.labels" . | nindent 4 }}
+  annotations:
+    {{- toYaml .Values.optimus-ide-collab.listenerset.annotations | nindent 4 }}
+spec:
+  parentRef:
+    {{- with .Values.optimus-ide-collab.listenerset.parentRef }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.optimus-ide-collab.listenerset.listeners }}
+  listeners:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

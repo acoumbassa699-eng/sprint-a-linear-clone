@@ -1,0 +1,7 @@
+optimus-ide-collab:
+  image:
+    tag: latest
+  readinessProbe:
+    enabled: false
+  livenessProbe:
+    enabled: false

@@ -1,0 +1,13 @@
+apiVersion: v2
+name: liboptimus-ide-collab
+description: Optimus-IDE-Collab library chart
+home: https://github.com/optimus-ide-collab/optimus-ide-collab
+
+type: library
+version: "0.1.0"
+appVersion: "0.1.0"
+
+maintainers:
+  - name: Optimus-IDE-Collab Technologies, Inc.
+    email: support@optimus-ide-collab.com
+    url: https://optimus-ide-collab.com/contact

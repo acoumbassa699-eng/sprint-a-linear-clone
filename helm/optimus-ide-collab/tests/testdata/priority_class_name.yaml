@@ -1,0 +1,4 @@
+optimus-ide-collab:
+  image:
+    tag: latest
+  priorityClassName: high-priority

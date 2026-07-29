@@ -1,0 +1,11 @@
+optimus-ide-collab:
+  image:
+    tag: latest
+
+  env:
+    - name: "SOME_ENV"
+      value: "some value"
+    - name: "OPTIMUS-IDE-COLLAB_ACCESS_URL"
+      value: "https://dev.optimus-ide-collab.com"
+
+  envUseClusterAccessURL: true # default

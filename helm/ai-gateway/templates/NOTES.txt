@@ -1,0 +1,13 @@
+Optimus-IDE-Collab AI Gateway is installed as {{ include "optimus-ide-collab.name" . }}.
+
+{{- if .Values.service.enable }}
+Configure the Optimus-IDE-Collab deployment with:
+
+  OPTIMUS-IDE-COLLAB_AI_GATEWAY_PROXY_TARGET={{ ternary "https" "http" (not (empty .Values.aigateway.listenerTLS.name)) }}://{{ include "optimus-ide-collab.name" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+{{- else }}
+The chart-managed Service is disabled. Configure OPTIMUS-IDE-COLLAB_AI_GATEWAY_PROXY_TARGET
+with the URL of the user-managed route to this deployment.
+{{- end }}
+
+The metrics listener is active on port 2112. Configure discovery with
+optimus-ide-collab.podAnnotations or resources managed by your monitoring stack.

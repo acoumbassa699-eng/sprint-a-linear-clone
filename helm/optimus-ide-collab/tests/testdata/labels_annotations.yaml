@@ -1,0 +1,15 @@
+optimus-ide-collab:
+  image:
+    tag: latest
+  annotations:
+    com.optimus-ide-collab/annotation/foo: bar
+    com.optimus-ide-collab/annotation/baz: qux
+  labels:
+    com.optimus-ide-collab/label/foo: bar
+    com.optimus-ide-collab/label/baz: qux
+  podAnnotations:
+    com.optimus-ide-collab/podAnnotation/foo: bar
+    com.optimus-ide-collab/podAnnotation/baz: qux
+  podLabels:
+    com.optimus-ide-collab/podLabel/foo: bar
+    com.optimus-ide-collab/podLabel/baz: qux

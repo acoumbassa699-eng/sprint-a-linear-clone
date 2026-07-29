@@ -1,0 +1,624 @@
+package optimus-ide-collabd
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+	"golang.org/x/xerrors"
+
+	"github.com/optimus-ide-collab/optimus-ide-collab/v2/optimus-ide-collabd/audit"
+	"github.com/optimus-ide-collab/optimus-ide-collab/v2/optimus-ide-collabd/database"
+	"github.com/optimus-ide-collab/optimus-ide-collab/v2/optimus-ide-collabd/database/db2sdk"
+	"github.com/optimus-ide-collab/optimus-ide-collab/v2/optimus-ide-collabd/httpapi"
+	"github.com/optimus-ide-collab/optimus-ide-collab/v2/optimus-ide-collabd/httpmw"
+	"github.com/optimus-ide-collab/optimus-ide-collab/v2/optimus-ide-collabsdk"
+)
+
+const (
+	// These names are raised by the enforce_user_secrets_per_user_limits
+	// trigger with USING CONSTRAINT. They are not table CHECK
+	// constraints, so dbgen does not emit them in check_constraint.go.
+	userSecretsCountLimitConstraint      database.CheckConstraint = "user_secrets_per_user_count_limit"
+	userSecretsTotalBytesLimitConstraint database.CheckConstraint = "user_secrets_per_user_total_bytes_limit"
+	userSecretsEnvBytesLimitConstraint   database.CheckConstraint = "user_secrets_per_user_env_bytes_limit"
+)
+
+// errUserSecretInjectionTargetRequired signals that a PATCH would leave an
+// enabled secret with both env_name and file_path empty. It is returned
+// from the patchUserSecret transaction so the handler can map it to a 400.
+// Creates enforce the same invariant in
+// optimus-ide-collabsdk.ValidateCreateUserSecretRequest.
+var errUserSecretInjectionTargetRequired = xerrors.New("enabled user secret must have at least one of env_name or file_path set")
+
+// @Summary Create a new user secret
+// @ID create-a-new-user-secret
+// @Security Optimus-IDE-CollabSessionToken
+// @Accept json
+// @Produce json
+// @Tags Secrets
+// @Param user path string true "User ID, username, or me"
+// @Param request body optimus-ide-collabsdk.CreateUserSecretRequest true "Create secret request"
+// @Success 201 {object} optimus-ide-collabsdk.UserSecret
+// @Router /api/v2/users/{user}/secrets [post]
+func (api *API) postUserSecret(rw http.ResponseWriter, r *http.Request) {
+	var (
+		ctx               = r.Context()
+		user              = httpmw.UserParam(r)
+		auditor           = api.Auditor.Load()
+		aReq, commitAudit = audit.InitRequest[database.UserSecret](rw, &audit.RequestParams{
+			Audit:   *auditor,
+			Log:     api.Logger,
+			Request: r,
+			Action:  database.AuditActionCreate,
+		})
+	)
+	defer commitAudit()
+
+	var req optimus-ide-collabsdk.CreateUserSecretRequest
+	if !httpapi.Read(ctx, rw, r, &req) {
+		return
+	}
+
+	if validations := optimus-ide-collabsdk.ValidateCreateUserSecretRequest(req); len(validations) > 0 {
+		writeUserSecretValidationErrors(ctx, rw, http.StatusBadRequest, validations)
+		return
+	}
+
+	enabled := true
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
+
+	secret, err := api.Database.CreateUserSecret(ctx, database.CreateUserSecretParams{
+		ID:          uuid.New(),
+		UserID:      user.ID,
+		Name:        req.Name,
+		Description: req.Description,
+		Value:       req.Value,
+		ValueKeyID:  sql.NullString{},
+		EnvName:     req.EnvName,
+		FilePath:    req.FilePath,
+		Enabled:     enabled,
+	})
+	if err != nil {
+		if validations := userSecretConflictValidationErrors(err); len(validations) > 0 {
+			writeUserSecretValidationErrors(ctx, rw, http.StatusConflict, validations)
+			return
+		}
+		if validations := userSecretInjectionTargetValidationErrors(err); len(validations) > 0 {
+			writeUserSecretValidationErrors(ctx, rw, http.StatusBadRequest, validations)
+			return
+		}
+		if resp, ok := userSecretLimitResponse(err); ok {
+			httpapi.Write(ctx, rw, http.StatusBadRequest, resp)
+			return
+		}
+		if httpapi.IsUnauthorizedError(err) {
+			httpapi.Forbidden(rw)
+			return
+		}
+		httpapi.Write(ctx, rw, http.StatusInternalServerError, optimus-ide-collabsdk.Response{
+			Message: "Internal error creating secret.",
+			Detail:  err.Error(),
+		})
+		return
+	}
+	aReq.New = secret
+
+	httpapi.Write(ctx, rw, http.StatusCreated, db2sdk.UserSecretFromFull(secret))
+}
+
+// @Summary Import user secrets from a file
+// @ID import-user-secrets-from-a-file
+// @Security Optimus-IDE-CollabSessionToken
+// @Accept json
+// @Produce json
+// @Tags Secrets
+// @Param user path string true "User ID, username, or me"
+// @Param request body optimus-ide-collabsdk.ImportUserSecretsRequest true "Import secrets request"
+// @Success 201 {array} optimus-ide-collabsdk.UserSecret
+// @Failure 400 {object} optimus-ide-collabsdk.Response
+// @Failure 409 {object} optimus-ide-collabsdk.Response
+// @Failure 413 {object} optimus-ide-collabsdk.Response
+// @Router /api/v2/users/{user}/secrets/batch [post]
+func (api *API) postUserSecretsBatch(rw http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	user := httpmw.UserParam(r)
+
+	// Cap body size before reading; worst-case JSON escaping can inflate
+	// a max-size file several-fold, so 8x gives comfortable headroom.
+	r.Body = http.MaxBytesReader(rw, r.Body, 8*optimus-ide-collabsdk.MaxSecretsFileBytes)
+	var req optimus-ide-collabsdk.ImportUserSecretsRequest
+	if !httpapi.Read(ctx, rw, r, &req) {
+		return
+	}
+
+	reqs, err := optimus-ide-collabsdk.ParseSecretsFile(req.Format, req.Content)
+	if err != nil {
+		httpapi.Write(ctx, rw, http.StatusBadRequest, optimus-ide-collabsdk.Response{
+			Message: "Failed to parse secrets file.",
+			Detail:  err.Error(),
+		})
+		return
+	}
+
+	// Validate every entry and accumulate all errors so the caller can
+	// fix the whole file in one round-trip. Each field is prefixed with
+	// the entry index, e.g. "secrets[2].env_name".
+	var validations []optimus-ide-collabsdk.ValidationError
+	for i, sreq := range reqs {
+		for _, v := range optimus-ide-collabsdk.ValidateCreateUserSecretRequest(sreq) {
+			validations = append(validations, optimus-ide-collabsdk.ValidationError{
+				Field:  fmt.Sprintf("secrets[%d].%s", i, v.Field),
+				Detail: v.Detail,
+			})
+		}
+	}
+	if len(validations) > 0 {
+		writeUserSecretValidationErrors(ctx, rw, http.StatusBadRequest, validations)
+		return
+	}
+
+	// Insert atomically. The per-user-limit trigger fires per row, and
+	// any unique or limit violation aborts the whole transaction, so a
+	// failed import creates nothing. failedIndex records which entry
+	// failed so the error can be attributed to it after the rollback.
+	var created []database.UserSecret
+	failedIndex := -1
+	err = api.Database.InTx(func(tx database.Store) error {
+		for i, sreq := range reqs {
+			enabled := true
+			if sreq.Enabled != nil {
+				enabled = *sreq.Enabled
+			}
+			s, txErr := tx.CreateUserSecret(ctx, database.CreateUserSecretParams{
+				ID:          uuid.New(),
+				UserID:      user.ID,
+				Name:        sreq.Name,
+				Description: sreq.Description,
+				Value:       sreq.Value,
+				ValueKeyID:  sql.NullString{},
+				EnvName:     sreq.EnvName,
+				FilePath:    sreq.FilePath,
+				Enabled:     enabled,
+			})
+			if txErr != nil {
+				failedIndex = i
+				return txErr
+			}
+			created = append(created, s)
+		}
+		return nil
+	}, nil)
+	if err != nil {
+		index := failedIndex
+
+		if conflicts := userSecretConflictValidationErrors(err); len(conflicts) > 0 {
+			if index >= 0 {
+				for i := range conflicts {
+					conflicts[i].Field = fmt.Sprintf("secrets[%d].%s", index, conflicts[i].Field)
+				}
+			}
+			writeUserSecretValidationErrors(ctx, rw, http.StatusConflict, conflicts)
+			return
+		}
+		if validations := userSecretInjectionTargetValidationErrors(err); len(validations) > 0 {
+			if index >= 0 {
+				for i := range validations {
+					validations[i].Field = fmt.Sprintf("secrets[%d].%s", index, validations[i].Field)
+				}
+			}
+			writeUserSecretValidationErrors(ctx, rw, http.StatusBadRequest, validations)
+			return
+		}
+		if resp, ok := userSecretLimitResponse(err); ok {
+			if index >= 0 {
+				resp.Detail = fmt.Sprintf("Entry secrets[%d] (%q): %s", index, reqs[index].Name, resp.Detail)
+			}
+			httpapi.Write(ctx, rw, http.StatusBadRequest, resp)
+			return
+		}
+		if httpapi.IsUnauthorizedError(err) {
+			httpapi.Forbidden(rw)
+			return
+		}
+		httpapi.Write(ctx, rw, http.StatusInternalServerError, optimus-ide-collabsdk.Response{
+			Message: "Internal error importing secrets.",
+			Detail:  err.Error(),
+		})
+		return
+	}
+
+	// Emit audit logs only after the transaction commits so a rolled-back
+	// batch produces zero logs. One create log is emitted per secret
+	// because database.UserSecret is registered as auditable.
+	auditor := api.Auditor.Load()
+	requestID := httpmw.RequestID(r)
+	auditCtx := context.WithoutCancel(ctx)
+	for _, secret := range created {
+		audit.BackgroundAudit(auditCtx, &audit.BackgroundAuditParams[database.UserSecret]{
+			Audit:     *auditor,
+			Log:       api.Logger,
+			UserID:    user.ID,
+			RequestID: requestID,
+			Status:    http.StatusCreated,
+			IP:        r.RemoteAddr,
+			UserAgent: r.UserAgent(),
+			Action:    database.AuditActionCreate,
+			New:       secret,
+			Old:       database.UserSecret{},
+		})
+	}
+
+	out := make([]optimus-ide-collabsdk.UserSecret, 0, len(created))
+	for _, secret := range created {
+		out = append(out, db2sdk.UserSecretFromFull(secret))
+	}
+	httpapi.Write(ctx, rw, http.StatusCreated, out)
+}
+
+// @Summary List user secrets
+// @ID list-user-secrets
+// @Security Optimus-IDE-CollabSessionToken
+// @Produce json
+// @Tags Secrets
+// @Param user path string true "User ID, username, or me"
+// @Success 200 {array} optimus-ide-collabsdk.UserSecret
+// @Router /api/v2/users/{user}/secrets [get]
+func (api *API) getUserSecrets(rw http.ResponseWriter, r *http.Request) { //nolint:revive // Method name matches route.
+	ctx := r.Context()
+	user := httpmw.UserParam(r)
+
+	secrets, err := api.Database.ListUserSecrets(ctx, user.ID)
+	if err != nil {
+		httpapi.Write(ctx, rw, http.StatusInternalServerError, optimus-ide-collabsdk.Response{
+			Message: "Internal error listing secrets.",
+			Detail:  err.Error(),
+		})
+		return
+	}
+
+	httpapi.Write(ctx, rw, http.StatusOK, db2sdk.UserSecrets(secrets))
+}
+
+// @Summary Get a user secret by name
+// @ID get-a-user-secret-by-name
+// @Security Optimus-IDE-CollabSessionToken
+// @Produce json
+// @Tags Secrets
+// @Param user path string true "User ID, username, or me"
+// @Param name path string true "Secret name"
+// @Success 200 {object} optimus-ide-collabsdk.UserSecret
+// @Router /api/v2/users/{user}/secrets/{name} [get]
+func (api *API) getUserSecret(rw http.ResponseWriter, r *http.Request) { //nolint:revive // Method name matches route.
+	ctx := r.Context()
+	user := httpmw.UserParam(r)
+	name := chi.URLParam(r, optimus-ide-collabsdk.UserSecretNameField)
+
+	secret, err := api.Database.GetUserSecretByUserIDAndName(ctx, database.GetUserSecretByUserIDAndNameParams{
+		UserID: user.ID,
+		Name:   name,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			httpapi.ResourceNotFound(rw)
+			return
+		}
+		httpapi.Write(ctx, rw, http.StatusInternalServerError, optimus-ide-collabsdk.Response{
+			Message: "Internal error fetching secret.",
+			Detail:  err.Error(),
+		})
+		return
+	}
+
+	httpapi.Write(ctx, rw, http.StatusOK, db2sdk.UserSecretFromFull(secret))
+}
+
+// @Summary Update a user secret
+// @ID update-a-user-secret
+// @Security Optimus-IDE-CollabSessionToken
+// @Accept json
+// @Produce json
+// @Tags Secrets
+// @Param user path string true "User ID, username, or me"
+// @Param name path string true "Secret name"
+// @Param request body optimus-ide-collabsdk.UpdateUserSecretRequest true "Update secret request"
+// @Success 200 {object} optimus-ide-collabsdk.UserSecret
+// @Router /api/v2/users/{user}/secrets/{name} [patch]
+func (api *API) patchUserSecret(rw http.ResponseWriter, r *http.Request) {
+	var (
+		ctx               = r.Context()
+		user              = httpmw.UserParam(r)
+		name              = chi.URLParam(r, optimus-ide-collabsdk.UserSecretNameField)
+		auditor           = api.Auditor.Load()
+		aReq, commitAudit = audit.InitRequest[database.UserSecret](rw, &audit.RequestParams{
+			Audit:   *auditor,
+			Log:     api.Logger,
+			Request: r,
+			Action:  database.AuditActionWrite,
+		})
+	)
+	defer commitAudit()
+
+	var req optimus-ide-collabsdk.UpdateUserSecretRequest
+	if !httpapi.Read(ctx, rw, r, &req) {
+		return
+	}
+
+	if req.Value == nil && req.Description == nil && req.EnvName == nil && req.FilePath == nil && req.Enabled == nil {
+		httpapi.Write(ctx, rw, http.StatusBadRequest, optimus-ide-collabsdk.Response{
+			Message: "At least one field must be provided.",
+		})
+		return
+	}
+	if validations := updateUserSecretValidationErrors(req); len(validations) > 0 {
+		writeUserSecretValidationErrors(ctx, rw, http.StatusBadRequest, validations)
+		return
+	}
+
+	params := database.UpdateUserSecretByUserIDAndNameParams{
+		UserID:            user.ID,
+		Name:              name,
+		UpdateValue:       req.Value != nil,
+		Value:             "",
+		ValueKeyID:        sql.NullString{},
+		UpdateDescription: req.Description != nil,
+		Description:       "",
+		UpdateEnvName:     req.EnvName != nil,
+		EnvName:           "",
+		UpdateFilePath:    req.FilePath != nil,
+		FilePath:          "",
+		UpdateEnabled:     req.Enabled != nil,
+		Enabled:           false,
+	}
+	if req.Value != nil {
+		params.Value = *req.Value
+	}
+	if req.Description != nil {
+		params.Description = *req.Description
+	}
+	if req.EnvName != nil {
+		params.EnvName = *req.EnvName
+	}
+	if req.FilePath != nil {
+		params.FilePath = *req.FilePath
+	}
+	if req.Enabled != nil {
+		params.Enabled = *req.Enabled
+	}
+
+	// Pre-read the secret inside a transaction so the audit diff has both an
+	// "old" and "new" snapshot.
+	//
+	// Under read committed isolation, a concurrent writer between our SELECT
+	// and our UPDATE can cause the audit diff to attribute changes to us that
+	// we did not make. We accept this race to match other audit log diffs
+	// (templates, workspaces, chats, etc). In practice this should be unlikely
+	// to hit since a user can only modify their own secrets.
+	var secret database.UserSecret
+	err := api.Database.InTx(func(tx database.Store) error {
+		old, err := tx.GetUserSecretByUserIDAndName(ctx, database.GetUserSecretByUserIDAndNameParams{
+			UserID: user.ID,
+			Name:   name,
+		})
+		if err != nil {
+			return xerrors.Errorf("fetch user secret: %w", err)
+		}
+		aReq.Old = old
+
+		// Reject patches that would leave an enabled secret with both
+		// env_name and file_path empty. Evaluated against the post-update
+		// state so atomic env<->file swaps still succeed, and so targets
+		// can be cleared when the same PATCH also disables the secret.
+		postEnvName := old.EnvName
+		if req.EnvName != nil {
+			postEnvName = *req.EnvName
+		}
+		postFilePath := old.FilePath
+		if req.FilePath != nil {
+			postFilePath = *req.FilePath
+		}
+		postEnabled := old.Enabled
+		if req.Enabled != nil {
+			postEnabled = *req.Enabled
+		}
+		if postEnabled && postEnvName == "" && postFilePath == "" {
+			return errUserSecretInjectionTargetRequired
+		}
+
+		updated, err := tx.UpdateUserSecretByUserIDAndName(ctx, params)
+		if err != nil {
+			return xerrors.Errorf("update user secret: %w", err)
+		}
+		secret = updated
+		aReq.New = updated
+		return nil
+	}, nil)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			httpapi.ResourceNotFound(rw)
+			return
+		}
+		if errors.Is(err, errUserSecretInjectionTargetRequired) {
+			writeUserSecretValidationErrors(ctx, rw, http.StatusBadRequest, []optimus-ide-collabsdk.ValidationError{{
+				Field:  optimus-ide-collabsdk.UserSecretEnvNameField,
+				Detail: optimus-ide-collabsdk.UserSecretInjectionTargetRequiredDetail,
+			}})
+			return
+		}
+		if validations := userSecretInjectionTargetValidationErrors(err); len(validations) > 0 {
+			writeUserSecretValidationErrors(ctx, rw, http.StatusBadRequest, validations)
+			return
+		}
+		if validations := userSecretConflictValidationErrors(err); len(validations) > 0 {
+			writeUserSecretValidationErrors(ctx, rw, http.StatusConflict, validations)
+			return
+		}
+		if resp, ok := userSecretLimitResponse(err); ok {
+			httpapi.Write(ctx, rw, http.StatusBadRequest, resp)
+			return
+		}
+		httpapi.Write(ctx, rw, http.StatusInternalServerError, optimus-ide-collabsdk.Response{
+			Message: "Internal error updating secret.",
+			Detail:  err.Error(),
+		})
+		return
+	}
+
+	httpapi.Write(ctx, rw, http.StatusOK, db2sdk.UserSecretFromFull(secret))
+}
+
+// @Summary Delete a user secret
+// @ID delete-a-user-secret
+// @Security Optimus-IDE-CollabSessionToken
+// @Tags Secrets
+// @Param user path string true "User ID, username, or me"
+// @Param name path string true "Secret name"
+// @Success 204
+// @Router /api/v2/users/{user}/secrets/{name} [delete]
+func (api *API) deleteUserSecret(rw http.ResponseWriter, r *http.Request) {
+	var (
+		ctx               = r.Context()
+		user              = httpmw.UserParam(r)
+		name              = chi.URLParam(r, optimus-ide-collabsdk.UserSecretNameField)
+		auditor           = api.Auditor.Load()
+		aReq, commitAudit = audit.InitRequest[database.UserSecret](rw, &audit.RequestParams{
+			Audit:   *auditor,
+			Log:     api.Logger,
+			Request: r,
+			Action:  database.AuditActionDelete,
+		})
+	)
+	defer commitAudit()
+
+	deleted, err := api.Database.DeleteUserSecretByUserIDAndName(ctx, database.DeleteUserSecretByUserIDAndNameParams{
+		UserID: user.ID,
+		Name:   name,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			httpapi.ResourceNotFound(rw)
+			return
+		}
+		httpapi.Write(ctx, rw, http.StatusInternalServerError, optimus-ide-collabsdk.Response{
+			Message: "Internal error deleting secret.",
+			Detail:  err.Error(),
+		})
+		return
+	}
+	aReq.Old = deleted
+
+	rw.WriteHeader(http.StatusNoContent)
+}
+
+func writeUserSecretValidationErrors(ctx context.Context, rw http.ResponseWriter, status int, validations []optimus-ide-collabsdk.ValidationError) {
+	httpapi.Write(ctx, rw, status, optimus-ide-collabsdk.Response{
+		Message:     "Validation failed.",
+		Validations: validations,
+	})
+}
+
+func updateUserSecretValidationErrors(req optimus-ide-collabsdk.UpdateUserSecretRequest) []optimus-ide-collabsdk.ValidationError {
+	var validations []optimus-ide-collabsdk.ValidationError
+	if req.Value != nil {
+		validations = appendUserSecretValidationError(validations, optimus-ide-collabsdk.UserSecretValueField, optimus-ide-collabsdk.UserSecretValueValid(*req.Value))
+	}
+	if req.EnvName != nil {
+		validations = appendUserSecretValidationError(validations, optimus-ide-collabsdk.UserSecretEnvNameField, optimus-ide-collabsdk.UserSecretEnvNameValid(*req.EnvName))
+	}
+	if req.FilePath != nil {
+		validations = appendUserSecretValidationError(validations, optimus-ide-collabsdk.UserSecretFilePathField, optimus-ide-collabsdk.UserSecretFilePathValid(*req.FilePath))
+	}
+	return validations
+}
+
+func appendUserSecretValidationError(validations []optimus-ide-collabsdk.ValidationError, field string, err error) []optimus-ide-collabsdk.ValidationError {
+	if err == nil {
+		return validations
+	}
+	return append(validations, optimus-ide-collabsdk.ValidationError{
+		Field:  field,
+		Detail: err.Error(),
+	})
+}
+
+// userSecretLimitResponse maps a per-user-limits trigger violation
+// (raised by enforce_user_secrets_per_user_limits) to a 400. Returns
+// ok=false if err is not such a violation. See
+// optimus-ide-collabsdk.MaxUserSecretsPerUserCount for the rationale behind the caps.
+func userSecretLimitResponse(err error) (optimus-ide-collabsdk.Response, bool) {
+	switch {
+	case database.IsCheckViolation(err, userSecretsCountLimitConstraint):
+		return optimus-ide-collabsdk.Response{
+			Message: "User secrets limit reached.",
+			Detail: fmt.Sprintf(
+				"Each user can have at most %d secrets.",
+				optimus-ide-collabsdk.MaxUserSecretsPerUserCount,
+			),
+		}, true
+	case database.IsCheckViolation(err, userSecretsTotalBytesLimitConstraint):
+		return optimus-ide-collabsdk.Response{
+			Message: "User secrets value-bytes limit reached.",
+			Detail: fmt.Sprintf(
+				"Stored bytes of your secret values exceed the per-user "+
+					"budget (%d bytes after encryption, if applicable). "+
+					"Reduce the size or number of your secrets.",
+				optimus-ide-collabsdk.MaxUserSecretsTotalValueBytes,
+			),
+		}, true
+	case database.IsCheckViolation(err, userSecretsEnvBytesLimitConstraint):
+		return optimus-ide-collabsdk.Response{
+			Message: "Environment-injected user secrets bytes limit reached.",
+			Detail: fmt.Sprintf(
+				"Stored bytes of env-injected secret values exceed the "+
+					"per-user budget (%d bytes after encryption, if applicable). "+
+					"Clear env_name on large secrets or use file_path instead.",
+				optimus-ide-collabsdk.MaxUserSecretValueBytes,
+			),
+		}, true
+	}
+	return optimus-ide-collabsdk.Response{}, false
+}
+
+// userSecretInjectionTargetValidationErrors maps the
+// user_secrets_enabled_requires_target CHECK violation to a field-level
+// validation error. The database constraint is the race-safe source of
+// truth for the injection-target invariant: concurrent PATCHes can each
+// clear a different target and pass the handler's own post-state check,
+// so the constraint is what ultimately rejects an enabled target-less row.
+func userSecretInjectionTargetValidationErrors(err error) []optimus-ide-collabsdk.ValidationError {
+	if database.IsCheckViolation(err, database.CheckUserSecretsEnabledRequiresTarget) {
+		return []optimus-ide-collabsdk.ValidationError{{
+			Field:  optimus-ide-collabsdk.UserSecretEnvNameField,
+			Detail: optimus-ide-collabsdk.UserSecretInjectionTargetRequiredDetail,
+		}}
+	}
+	return nil
+}
+
+func userSecretConflictValidationErrors(err error) []optimus-ide-collabsdk.ValidationError {
+	switch {
+	case database.IsUniqueViolation(err, database.UniqueUserSecretsUserNameIndex):
+		return []optimus-ide-collabsdk.ValidationError{{
+			Field:  optimus-ide-collabsdk.UserSecretNameField,
+			Detail: "name already in use",
+		}}
+	case database.IsUniqueViolation(err, database.UniqueUserSecretsUserEnvNameIndex):
+		return []optimus-ide-collabsdk.ValidationError{{
+			Field:  optimus-ide-collabsdk.UserSecretEnvNameField,
+			Detail: "environment variable already in use",
+		}}
+	case database.IsUniqueViolation(err, database.UniqueUserSecretsUserFilePathIndex):
+		return []optimus-ide-collabsdk.ValidationError{{
+			Field:  optimus-ide-collabsdk.UserSecretFilePathField,
+			Detail: "file path already in use",
+		}}
+	default:
+		return nil
+	}
+}

@@ -1,0 +1,8 @@
+optimus-ide-collab:
+  image:
+    tag: latest
+  env:
+    - name: OPTIMUS-IDE-COLLAB_PPROF_ADDRESS
+      value: "127.0.0.1:6060"
+    - name: OPTIMUS-IDE-COLLAB_PPROF_ENABLE
+      value: "true"

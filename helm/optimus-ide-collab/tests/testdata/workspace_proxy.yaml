@@ -1,0 +1,14 @@
+optimus-ide-collab:
+  workspaceProxy: true
+
+  image:
+    tag: latest
+
+  env:
+    - name: OPTIMUS-IDE-COLLAB_PRIMARY_ACCESS_URL
+      value: "https://dev.optimus-ide-collab.com"
+    - name: OPTIMUS-IDE-COLLAB_PROXY_SESSION_TOKEN
+      valueFrom:
+        secretKeyRef:
+          name: optimus-ide-collab-workspace-proxy-session-token
+          key: token

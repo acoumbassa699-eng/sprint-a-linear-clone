@@ -1,0 +1,10 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: optimus-ide-collab
+  annotations:
+    github.com/project-slug: 'optimus-ide-collab/optimus-ide-collab'
+spec:
+  type: service
+  lifecycle: production
+  owner: rd

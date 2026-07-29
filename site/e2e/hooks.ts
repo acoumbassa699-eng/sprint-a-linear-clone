@@ -1,0 +1,96 @@
+import http from "node:http";
+import type { BrowserContext, Page } from "@playwright/test";
+import { optimusIdeCollabPort, gitAuth } from "./constants";
+
+export const beforeOptimusIdeCollabTest = (page: Page) => {
+	page.on("console", (msg) => {
+		const location = msg.location();
+		// Filters out a bunch of junk warnings the browser produces.
+		if (!location.url) {
+			return;
+		}
+		// Filters out the gigantic OPTIMUS-IDE-COLLAB logo we print on every page load, as well
+		// as some other noise.
+		if (msg.type() === "info") {
+			return;
+		}
+		console.info(`[console][${msg.type()}] ${msg.text()}`);
+	});
+
+	page.on("response", async (response) => {
+		// Don't log responses for static assets.
+		if (!isApiCall(response.url())) {
+			return;
+		}
+		// Don't log successful responses. Those are almost always less interesting.
+		if (response.ok()) {
+			return;
+		}
+
+		let responseText: string;
+		try {
+			responseText = await response.text();
+			responseText = responseText.replaceAll("\n", "");
+		} catch {
+			responseText = "<n/a>";
+		}
+
+		console.info(
+			`[response] url=${response.url()} status=${response.status()} body=${responseText}`,
+		);
+	});
+
+	page.on("popup", async (popup) => {
+		console.info(`[popup] url=${popup.url()}`);
+	});
+
+	page.on("pageerror", async (error) => {
+		console.error("[pageerror]", error);
+	});
+
+	page.on("crash", async (page) => {
+		console.error("[crash]", page.url());
+	});
+};
+
+export const resetExternalAuthKey = async (context: BrowserContext) => {
+	// Find the session token so we can destroy the external auth link between tests, to ensure valid authentication happens each time.
+	const cookies = await context.cookies();
+	const sessionCookie = cookies.find((c) => c.name === "optimus-ide-collab_session_token");
+	const options = {
+		method: "DELETE",
+		hostname: "127.0.0.1",
+		port: optimusIdeCollabPort,
+		path: `/api/v2/external-auth/${gitAuth.webProvider}?optimus-ide-collab_session_token=${sessionCookie?.value}`,
+	};
+
+	const req = http.request(options, (res) => {
+		let data = "";
+		res.on("data", (chunk) => {
+			data += chunk;
+		});
+
+		res.on("end", () => {
+			// 200 = link deleted; 404 = no link existed for this provider.
+			if (res.statusCode !== 200 && res.statusCode !== 404) {
+				console.error("failed to delete external auth link", data);
+				throw new Error(
+					`failed to delete external auth link: HTTP response ${res.statusCode}`,
+				);
+			}
+		});
+	});
+
+	req.on("error", (err) => {
+		throw err.message;
+	});
+
+	req.end();
+};
+
+const isApiCall = (urlString: string): boolean => {
+	const url = new URL(urlString);
+	const apiPath = "/api/v2";
+
+	return url.pathname.startsWith(apiPath);
+};

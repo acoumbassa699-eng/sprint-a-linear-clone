@@ -1,0 +1,6 @@
+optimus-ide-collab:
+  image:
+    tag: latest
+  commandArgs:
+    - arg1
+    - arg2

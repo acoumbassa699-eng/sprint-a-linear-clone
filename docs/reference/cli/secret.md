@@ -1,0 +1,54 @@
+<!-- DO NOT EDIT | GENERATED CONTENT -->
+# secret
+
+Manage secrets
+
+Aliases:
+
+* secrets
+
+## Usage
+
+```console
+optimus-ide-collab secret
+```
+
+## Description
+
+```console
+  - Create a secret:
+
+     $ printf %s "$MYCLI_API_KEY" | optimus-ide-collab secret create api-key --description "API key for workspace tools" --env API_KEY --file "~/.api-key"
+
+  - Update a secret:
+
+     $ echo -n "$NEW_SECRET_VALUE" | optimus-ide-collab secret update api-key --description "Rotated API key" --env API_KEY --file "~/.api-key"
+
+  - Import secrets from a file:
+
+     $ optimus-ide-collab secret import ./secrets.env
+
+  - List your secrets:
+
+     $ optimus-ide-collab secret list
+
+  - Show a specific secret:
+
+     $ optimus-ide-collab secret list api-key
+
+  - Delete a secret:
+
+     $ optimus-ide-collab secret delete api-key
+```
+
+## Subcommands
+
+| Name                                        | Purpose                                           |
+|---------------------------------------------|---------------------------------------------------|
+| [<code>create</code>](./secret_create.md)   | Create a secret                                   |
+| [<code>update</code>](./secret_update.md)   | Update a secret                                   |
+| [<code>import</code>](./secret_import.md)   | Import secrets from a file                        |
+| [<code>enable</code>](./secret_enable.md)   | Enable a secret so it is injected into workspaces |
+| [<code>disable</code>](./secret_disable.md) | Disable a secret without removing it              |
+| [<code>list</code>](./secret_list.md)       | List secrets, or show one by name                 |
+| [<code>delete</code>](./secret_delete.md)   | Delete a secret                                   |

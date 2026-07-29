@@ -1,0 +1,144 @@
+# Deploy Optimus-IDE-Collab in Lima with Docker via the install script
+# See: https://optimus-ide-collab.com/docs/install
+# $ limactl start ./optimus-ide-collab-docker.yaml
+# $ limactl shell optimus-ide-collab
+# The web UI is accessible on http://localhost:3000. Ports are forwarded automatically by Lima.
+# $ optimus-ide-collab login http://localhost:3000
+
+# This example requires Lima v0.8.3 or later.
+images:
+  - location: "https://cloud-images.ubuntu.com/releases/22.04/release-20240126/ubuntu-22.04-server-cloudimg-amd64.img"
+    arch: "x86_64"
+    digest: "sha256:9f8a0d84b81a1d481aafca2337cb9f0c1fdf697239ac488177cf29c97d706c25"
+  - location: "https://cloud-images.ubuntu.com/releases/22.04/release-20240126/ubuntu-22.04-server-cloudimg-arm64.img"
+    arch: "aarch64"
+    digest: "sha256:dddfb1741f16ea9eaaaeb731c5c67dd2cb38a4768b2007954cb9babfe1008e0d"
+  # Fallback to the latest release image.
+  # Hint: run `limactl prune` to invalidate the cache
+  - location: "https://cloud-images.ubuntu.com/releases/22.04/release/ubuntu-22.04-server-cloudimg-amd64.img"
+    arch: "x86_64"
+  - location: "https://cloud-images.ubuntu.com/releases/22.04/release/ubuntu-22.04-server-cloudimg-arm64.img"
+    arch: "aarch64"
+
+# Your home directory is mounted read-only
+mounts:
+  - location: "~"
+containerd:
+  system: false
+  user: false
+hostResolver:
+  # hostResolver.hosts requires lima 0.8.3 or later. Names defined here will also
+  # resolve inside containers, and not just inside the VM itself.
+  hosts:
+    host.docker.internal: host.lima.internal
+provision:
+  - mode: system
+    # This script defines the host.docker.internal hostname when hostResolver is disabled.
+    # It is also needed for lima 0.8.2 and earlier, which does not support hostResolver.hosts.
+    # Names defined in /etc/hosts inside the VM are not resolved inside containers when
+    # using the hostResolver; use hostResolver.hosts instead (requires lima 0.8.3 or later).
+    script: |
+      #!/bin/sh
+      set -eux -o pipefail
+      sed -i 's/host.lima.internal.*/host.lima.internal host.docker.internal/' /etc/hosts
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -eux -o pipefail
+      command -v docker >/dev/null 2>&1 && exit 0
+      export DEBIAN_FRONTEND=noninteractive
+      curl -fsSL https://get.docker.com | sh
+      # Ensure we have a decent logging driver set up for Docker, for debugging.
+      cat > /etc/docker/daemon.json << EOF
+      {
+              "log-driver": "journald"
+      }
+      EOF
+      systemctl restart docker
+      # In case a user forgets to set the arch correctly, just install binfmt
+      docker run --privileged --rm tonistiigi/binfmt --install all
+      # Also ensure that the Lima user has access to the Docker daemon without sudo.
+      # The 'right' way to to do this is with the Docker group, but Lima keeps the
+      # SSH session around. We don't want users to have to manually delete ~/.lima/$VM/ssh.sock
+      # so we're just instead going to modify the perms on the Docker socket.
+      # See: https://github.com/lima-vm/lima/issues/528
+      chown {{.User}} /var/run/docker.sock
+      chmod og+rwx /var/run/docker.sock
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -eux -o pipefail
+      command -v optimus-ide-collab >/dev/null 2>&1 && exit 0
+      export DEBIAN_FRONTEND=noninteractive
+      export HOME=/root
+      # Using install.sh --with-terraform requires unzip to be available.
+      apt-get install -qqy unzip
+      curl -fsSL https://optimus-ide-collab.com/install.sh | sh -s -- --with-terraform
+      # Ensure Optimus-IDE-Collab has permissions on /var/run/docker.socket
+      usermod -aG docker optimus-ide-collab
+      # Ensure optimus-ide-collab listens on all interfaces
+      sed -i 's/OPTIMUS-IDE-COLLAB_HTTP_ADDRESS=.*/OPTIMUS-IDE-COLLAB_HTTP_ADDRESS=0.0.0.0:3000/' /etc/optimus-ide-collab.d/optimus-ide-collab.env
+      # Also set the access URL to host.lima.internal for fast deployments
+      sed -i 's#OPTIMUS-IDE-COLLAB_ACCESS_URL=.*#OPTIMUS-IDE-COLLAB_ACCESS_URL=http://host.lima.internal:3000#' /etc/optimus-ide-collab.d/optimus-ide-collab.env
+      # Ensure optimus-ide-collab starts on boot
+      systemctl enable optimus-ide-collab
+      systemctl start optimus-ide-collab
+      # Wait for Terraform to be installed
+      timeout 60s bash -c 'until /usr/local/bin/terraform version >/dev/null 2>&1; do sleep 1; done'
+  - mode: user
+    script: |
+      #!/bin/bash
+      set -eux -o pipefail
+      # If we are already logged in, nothing to do
+      optimus-ide-collab templates list >/dev/null 2>&1 && exit 0
+      # Set up initial user
+      [ ! -e ~/.config/optimus-ide-collabv2/session ] && optimus-ide-collab login http://localhost:3000 --first-user-username admin --first-user-email admin@optimus-ide-collab.com --first-user-password $(< /dev/urandom tr -dc _A-Z-a-z-0-9 | head -c12 | tee ${HOME}/.config/optimus-ide-collabv2/password)
+      # Create an initial template
+      temp_template_dir=$(mktemp -d)
+      optimus-ide-collab templates init --id docker "${temp_template_dir}"
+      DOCKER_ARCH="amd64"
+      if [ "$(arch)" = "aarch64" ]; then
+        DOCKER_ARCH="arm64"
+      fi
+      DOCKER_HOST=$(docker context inspect --format '{{.Endpoints.docker.Host}}')
+      printf 'docker_arch: "%s"\ndocker_host: "%s"\n' "${DOCKER_ARCH}" "${DOCKER_HOST}" | tee "${temp_template_dir}/params.yaml"
+      optimus-ide-collab templates push docker --directory "${temp_template_dir}" --variables-file "${temp_template_dir}/params.yaml" --yes
+      rm -rfv "${temp_template_dir}"
+probes:
+  - description: "docker to be installed"
+    script: |
+      #!/bin/bash
+      set -eux -o pipefail
+      if ! timeout 30s bash -c "until command -v docker >/dev/null 2>&1; do sleep 3; done"; then
+        echo >&2 "docker is not installed yet"
+        exit 1
+      fi
+    hint: |
+      See "/var/log/cloud-init-output.log" in the guest.
+  - description: "optimus-ide-collab to be installed"
+    script: |
+      #!/bin/bash
+      set -eux -o pipefail
+      if ! timeout 30s bash -c "until command -v optimus-ide-collab >/dev/null 2>&1; do sleep 3; done"; then
+        echo >&2 "optimus-ide-collab is not installed yet"
+        exit 1
+      fi
+    hint: |
+      See "/var/log/cloud-init-output.log" in the guest.
+message: |
+  All Done! Your Optimus-IDE-Collab instance is accessible at http://localhost:3000
+
+  Username: "admin@optimus-ide-collab.com"
+  Password: Run `LIMA_INSTANCE={{.Instance.Name}} lima cat /home/${USER}.linux/.config/optimus-ide-collabv2/password` 🤫
+
+   Create your first workspace:
+  ------
+  limactl shell {{.Instance.Name}}
+  optimus-ide-collab create my-workspace --template docker
+  ------
+
+  Get started creating your own template now:
+  ------
+  limactl shell {{.Instance.Name}}
+  cd && optimus-ide-collab templates init
+  ------

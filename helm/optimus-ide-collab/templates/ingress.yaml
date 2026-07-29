@@ -1,0 +1,54 @@
+{{- if .Values.optimus-ide-collab.ingress.enable }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: optimus-ide-collab
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "optimus-ide-collab.labels" . | nindent 4 }}
+  annotations:
+    {{- toYaml .Values.optimus-ide-collab.ingress.annotations | nindent 4 }}
+spec:
+  {{- if .Values.optimus-ide-collab.ingress.className }}
+  {{/* If this is set to an empty string it fails validation on K8s */}}
+  ingressClassName: {{ .Values.optimus-ide-collab.ingress.className | quote }}
+  {{- end }}
+
+  rules:
+    - host: {{ .Values.optimus-ide-collab.ingress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: optimus-ide-collab
+                port:
+                  name: "http"
+
+    {{- if .Values.optimus-ide-collab.ingress.wildcardHost }}
+    - host: {{ include "optimus-ide-collab.ingressWildcardHost" . | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: optimus-ide-collab
+                port:
+                  name: "http"
+    {{- end }}
+
+  {{- if .Values.optimus-ide-collab.ingress.tls.enable }}
+  tls:
+    - hosts:
+        - {{ .Values.optimus-ide-collab.ingress.host | quote }}
+      secretName: {{ .Values.optimus-ide-collab.ingress.tls.secretName | quote}}
+    {{- if .Values.optimus-ide-collab.ingress.tls.wildcardSecretName }}
+    - hosts:
+        - {{ include "optimus-ide-collab.ingressWildcardHost" . | quote }}
+      secretName: {{ .Values.optimus-ide-collab.ingress.tls.wildcardSecretName | quote}}
+    {{- end }}
+  {{- end }}
+{{- end }}

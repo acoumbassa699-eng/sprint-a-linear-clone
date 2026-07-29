@@ -1,0 +1,6 @@
+optimus-ide-collab:
+  image:
+    tag: latest
+  tls:
+    secretNames:
+      - optimus-ide-collab-tls

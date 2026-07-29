@@ -1,0 +1,8 @@
+{{- include "optimus-ide-collab-ai-gateway.validate" . -}}
+---
+{{- if not .Values.optimus-ide-collab.serviceAccount.disableCreate }}
+{{ include "liboptimus-ide-collab.serviceaccount" (list . "optimus-ide-collab-ai-gateway.serviceaccount") }}
+{{- end }}
+
+---
+{{ include "liboptimus-ide-collab.deployment" (list . "optimus-ide-collab-ai-gateway.deployment") }}

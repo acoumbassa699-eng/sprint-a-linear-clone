@@ -1,0 +1,13 @@
+optimus-ide-collab:
+  replicaCount: 3
+  image:
+    tag: v2.36.0
+  env:
+    - name: OPTIMUS-IDE-COLLAB_URL
+      value: https://optimus-ide-collab.example.com
+    - name: OPTIMUS-IDE-COLLAB_AI_GATEWAY_KEY
+      valueFrom:
+        secretKeyRef:
+          name: ai-gateway-key
+          key: key
+aigateway: {}

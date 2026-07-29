@@ -1,0 +1,6 @@
+{{/*
+Deprecation notices:
+*/}}
+
+Enjoy Optimus-IDE-Collab! Please create an issue at https://github.com/optimus-ide-collab/optimus-ide-collab if you run
+into any problems! :)

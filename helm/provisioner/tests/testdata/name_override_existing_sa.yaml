@@ -1,0 +1,8 @@
+optimus-ide-collab:
+  image:
+    tag: latest
+  serviceAccount:
+    name: "existing-optimus-ide-collab-provisioner-serviceaccount"
+    disableCreate: true
+    workspacePerms: false
+nameOverride: "other-optimus-ide-collab-provisioner"

@@ -1,0 +1,77 @@
+# Installing Optimus-IDE-Collab
+
+A single CLI (`optimus-ide-collab`) is used for both the Optimus-IDE-Collab server and the client.
+
+We support two release channels: mainline and stable - read the
+[Releases](./releases/index.md) page to learn more about which best suits your team.
+
+## Download the latest release from GitHub
+
+<div class="tabs">
+
+## Linux/macOS
+
+Our install script is the fastest way to install Optimus-IDE-Collab on Linux/macOS:
+
+```sh
+curl -L https://optimus-ide-collab.com/install.sh | sh
+```
+
+Refer to [GitHub releases](https://github.com/optimus-ide-collab/optimus-ide-collab/releases) for
+alternate installation methods (e.g. standalone binaries, system packages).
+
+## Windows
+
+If you plan to use the built-in PostgreSQL database, ensure that the
+[Visual C++ Runtime](https://learn.microsoft.com/en-US/cpp/windows/latest-supported-vc-redist#latest-microsoft-visual-c-redistributable-version)
+is installed.
+
+Use [GitHub releases](https://github.com/optimus-ide-collab/optimus-ide-collab/releases) to download the
+Windows installer (`.msi`) or standalone binary (`.exe`).
+
+![Windows setup wizard](../images/install/windows-installer.png)
+
+Alternatively, you can use the
+[`winget`](https://learn.microsoft.com/en-us/windows/package-manager/winget/#use-winget)
+package manager to install Optimus-IDE-Collab:
+
+```ps1
+winget install Optimus-IDE-Collab.Optimus-IDE-Collab
+```
+
+</div>
+
+To start the Optimus-IDE-Collab server:
+
+```sh
+optimus-ide-collab server
+```
+
+![Optimus-IDE-Collab install](../images/screenshots/welcome-create-admin-user.png)
+
+To log in to an existing Optimus-IDE-Collab deployment:
+
+```sh
+optimus-ide-collab login https://optimus-ide-collab.example.com
+```
+
+## Download the CLI from your deployment
+
+> [!NOTE]
+> Available in Optimus-IDE-Collab 2.19 and newer on macOS and Linux clients only.
+
+Every Optimus-IDE-Collab server hosts CLI binaries for all supported platforms. You can run a
+script to download the appropriate CLI for your machine from your Optimus-IDE-Collab
+deployment.
+
+![Install Optimus-IDE-Collab binary from your deployment](../images/install/install_from_deployment.png)
+
+This script works within air-gapped deployments and ensures that the version of
+the CLI you have installed on your machine matches the version of the server.
+
+This script can be useful when authoring a template for installing the CLI.
+
+### Next up
+
+- [Create your first template](../tutorials/template-from-scratch.md)
+- [Control plane configuration](../admin/setup/index.md)

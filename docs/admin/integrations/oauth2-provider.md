@@ -1,0 +1,340 @@
+# OAuth2 Provider (Experimental)
+
+> [!WARNING]
+> The OAuth2 provider functionality is currently **experimental and unstable**. This feature:
+>
+> - Is subject to breaking changes without notice
+> - May have incomplete functionality
+> - Is not recommended for production use
+> - Requires the `oauth2` experiment flag to be enabled
+>
+> Use this feature for development and testing purposes only.
+
+Optimus-IDE-Collab can act as an OAuth2 authorization server, allowing third-party applications to authenticate users through Optimus-IDE-Collab and access the Optimus-IDE-Collab API on their behalf. This enables integrations where external applications can leverage Optimus-IDE-Collab's authentication and user management.
+
+## Requirements
+
+- Admin privileges in Optimus-IDE-Collab
+- OAuth2 experiment flag enabled
+- HTTPS recommended for production deployments
+
+## Enable OAuth2 Provider
+
+Add the `oauth2` experiment flag to your Optimus-IDE-Collab server:
+
+```sh
+optimus-ide-collab server --experiments oauth2
+```
+
+Or set the environment variable:
+
+```dotenv
+OPTIMUS-IDE-COLLAB_EXPERIMENTS=oauth2
+```
+
+## Creating OAuth2 Applications
+
+### Method 1: Web UI
+
+1. Navigate to **Deployment Settings** → **OAuth2 Applications**
+2. Click **Create Application**
+3. Fill in the application details:
+   - **Name**: Your application name
+   - **Callback URL**: `https://yourapp.example.com/callback` (web) or `myapp://callback` (native/desktop)
+   - **Icon**: Optional icon URL
+
+### Method 2: Management API
+
+Create an application using the Optimus-IDE-Collab API:
+
+```sh
+curl -X POST \
+  -H "Authorization: Bearer $OPTIMUS-IDE-COLLAB_SESSION_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "My Application",
+    "callback_url": "https://myapp.example.com/callback",
+    "icon": "https://myapp.example.com/icon.png"
+  }' \
+  "$OPTIMUS-IDE-COLLAB_URL/api/v2/oauth2-provider/apps"
+```
+
+Generate a client secret:
+
+```sh
+curl -X POST \
+  -H "Authorization: Bearer $OPTIMUS-IDE-COLLAB_SESSION_TOKEN" \
+  "$OPTIMUS-IDE-COLLAB_URL/api/v2/oauth2-provider/apps/$APP_ID/secrets"
+```
+
+## Dynamic Client Registration
+
+Dynamic Client Registration ([RFC 7591](https://datatracker.ietf.org/doc/html/rfc7591)) lets a client register itself against `/oauth2/register` instead of an admin creating the application manually. It's **disabled by default**; an owner must turn it on before any client can self-register.
+
+Check or change the setting with the CLI:
+
+```sh
+optimus-ide-collab oauth2-provider dcr enable
+optimus-ide-collab oauth2-provider dcr disable
+```
+
+Or with the management API:
+
+```sh
+curl -X PUT \
+  -H "Authorization: Bearer $OPTIMUS-IDE-COLLAB_SESSION_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"dynamic_client_registration_enabled": true}' \
+  "$OPTIMUS-IDE-COLLAB_URL/api/v2/oauth2-provider/settings"
+```
+
+```sh
+curl -H "Authorization: Bearer $OPTIMUS-IDE-COLLAB_SESSION_TOKEN" \
+  "$OPTIMUS-IDE-COLLAB_URL/api/v2/oauth2-provider/settings"
+```
+
+Disabling only blocks *new* self-registrations. Applications that already
+registered while it was enabled keep authorizing and exchanging tokens
+normally; disabling does not revoke or otherwise affect them.
+
+## Integration Patterns
+
+### Client Authentication Methods
+
+Optimus-IDE-Collab supports the following OAuth2 client authentication methods at the token endpoint (`/oauth2/tokens`):
+
+- `client_secret_basic` (recommended): HTTP Basic authentication (RFC 6749 §2.3.1). The username is `client_id` and the password is `client_secret`.
+- `client_secret_post`: Form-based authentication where `client_id` and `client_secret` are sent in the request body.
+
+Optimus-IDE-Collab supports both methods for compatibility; existing integrations using `client_secret_post` do not need to change.
+
+If you use Dynamic Client Registration (RFC 7591) and omit `token_endpoint_auth_method`, clients default to `client_secret_basic`. To request `client_secret_post`, set `token_endpoint_auth_method` to `client_secret_post` in the registration request.
+
+If client authentication fails, the token endpoint returns **HTTP 401** with an OAuth2 `invalid_client` error and a `WWW-Authenticate: Basic realm="optimus-ide-collab"` response header.
+
+### Standard OAuth2 Flow
+
+1. **Authorization Request**: Redirect users to Optimus-IDE-Collab's authorization endpoint:
+
+   ```txt
+   https://optimus-ide-collab.example.com/oauth2/authorize?
+     client_id=your-client-id&
+     response_type=code&
+     redirect_uri=https://yourapp.example.com/callback&
+     state=random-string
+   ```
+
+2. **Token Exchange**: Exchange the authorization code for an access token.
+
+   **Option A: HTTP Basic authentication (`client_secret_basic`, recommended)**
+
+   ```sh
+   curl -X POST \
+     -u "$CLIENT_ID:$CLIENT_SECRET" \
+     -H "Content-Type: application/x-www-form-urlencoded" \
+     -d "grant_type=authorization_code" \
+     -d "code=$AUTH_CODE" \
+     -d "redirect_uri=https://yourapp.example.com/callback" \
+     "$OPTIMUS-IDE-COLLAB_URL/oauth2/tokens"
+   ```
+
+   **Option B: Form parameters (`client_secret_post`)**
+
+   ```sh
+   curl -X POST \
+     -H "Content-Type: application/x-www-form-urlencoded" \
+     -d "grant_type=authorization_code" \
+     -d "code=$AUTH_CODE" \
+     -d "client_id=$CLIENT_ID" \
+     -d "client_secret=$CLIENT_SECRET" \
+     -d "redirect_uri=https://yourapp.example.com/callback" \
+     "$OPTIMUS-IDE-COLLAB_URL/oauth2/tokens"
+   ```
+
+3. **API Access**: Use the access token to call Optimus-IDE-Collab's API:
+
+   ```sh
+   curl -H "Authorization: Bearer $ACCESS_TOKEN" \
+     "$OPTIMUS-IDE-COLLAB_URL/api/v2/users/me"
+   ```
+
+> [!NOTE]
+> The PKCE flow below is the **required** integration path. The example
+> above is shown for reference but omits the mandatory `code_challenge`
+> parameter. See [PKCE Flow](#pkce-flow-required) for the complete flow.
+
+### PKCE Flow (Required)
+
+PKCE is **required** for all OAuth2 authorization code flows. Optimus-IDE-Collab enforces
+PKCE in compliance with the OAuth 2.1 specification. Both public and
+confidential clients must include PKCE parameters:
+
+1. Generate a code verifier and challenge:
+
+   ```sh
+   CODE_VERIFIER=$(openssl rand -base64 96 | tr -d "=+/" | cut -c1-128)
+   CODE_CHALLENGE=$(echo -n $CODE_VERIFIER | openssl dgst -sha256 -binary | base64 | tr -d "=+/" | cut -c1-43)
+   ```
+
+2. Include PKCE parameters in the authorization request:
+
+   ```txt
+   https://optimus-ide-collab.example.com/oauth2/authorize?
+     client_id=your-client-id&
+     response_type=code&
+     code_challenge=$CODE_CHALLENGE&
+     code_challenge_method=S256&
+     redirect_uri=https://yourapp.example.com/callback
+   ```
+
+3. Include the code verifier in the token exchange (see [Client Authentication Methods](#client-authentication-methods)):
+
+   ```sh
+   curl -X POST \
+     -u "$CLIENT_ID:$CLIENT_SECRET" \
+     -H "Content-Type: application/x-www-form-urlencoded" \
+     -d "grant_type=authorization_code" \
+     -d "code=$AUTH_CODE" \
+     -d "code_verifier=$CODE_VERIFIER" \
+     -d "redirect_uri=https://yourapp.example.com/callback" \
+     "$OPTIMUS-IDE-COLLAB_URL/oauth2/tokens"
+   ```
+
+## Discovery Endpoints
+
+Optimus-IDE-Collab provides OAuth2 discovery endpoints for programmatic integration:
+
+- **Authorization Server Metadata**: `GET /.well-known/oauth-authorization-server`
+- **Protected Resource Metadata**: `GET /.well-known/oauth-protected-resource`
+
+These endpoints return server capabilities and endpoint URLs according to [RFC 8414](https://datatracker.ietf.org/doc/html/rfc8414) and [RFC 9728](https://datatracker.ietf.org/doc/html/rfc9728).
+
+## Token Management
+
+### Refresh Tokens
+
+Refresh an expired access token.
+
+**Option A: HTTP Basic authentication (`client_secret_basic`)**
+
+```sh
+curl -X POST \
+  -u "$CLIENT_ID:$CLIENT_SECRET" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=refresh_token" \
+  -d "refresh_token=$REFRESH_TOKEN" \
+  "$OPTIMUS-IDE-COLLAB_URL/oauth2/tokens"
+```
+
+**Option B: Form parameters (`client_secret_post`)**
+
+```sh
+curl -X POST \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=refresh_token" \
+  -d "refresh_token=$REFRESH_TOKEN" \
+  -d "client_id=$CLIENT_ID" \
+  -d "client_secret=$CLIENT_SECRET" \
+  "$OPTIMUS-IDE-COLLAB_URL/oauth2/tokens"
+```
+
+### Revoke Access
+
+Revoke all tokens for an application:
+
+```sh
+curl -X DELETE \
+  -H "Authorization: Bearer $OPTIMUS-IDE-COLLAB_SESSION_TOKEN" \
+  "$OPTIMUS-IDE-COLLAB_URL/oauth2/tokens?client_id=$CLIENT_ID"
+```
+
+## Testing and Development
+
+Optimus-IDE-Collab provides comprehensive test scripts for OAuth2 development:
+
+```sh
+# Navigate to the OAuth2 test scripts
+cd scripts/oauth2/
+
+# Run the full automated test suite
+./test-mcp-oauth2.sh
+
+# Create a test application for manual testing
+eval $(./setup-test-app.sh)
+
+# Run an interactive browser-based test
+./test-manual-flow.sh
+
+# Clean up when done
+./cleanup-test-app.sh
+```
+
+For more details on testing, see the [OAuth2 test scripts README](../../../scripts/oauth2/README.md).
+
+## Common Issues
+
+### "OAuth2 experiment not enabled"
+
+Add `oauth2` to your experiment flags: `optimus-ide-collab server --experiments oauth2`
+
+### "Invalid redirect_uri"
+
+Ensure the redirect URI in your request exactly matches the one registered for your application.
+
+### "Invalid Callback URL" on the consent page
+
+If you see this error when authorizing, the registered callback URL uses a
+blocked scheme (`javascript:`, `data:`, `file:`, or `ftp:`). Update the
+application's callback URL to a valid scheme (see
+[Callback URL schemes](#callback-url-schemes)).
+
+### "PKCE verification failed"
+
+Verify that the `code_verifier` used in the token request matches the one used to generate the `code_challenge`.
+
+## Callback URL schemes
+
+Custom URI schemes (`myapp://`, `vscode://`, `jetbrains://`, etc.) are fully supported for native and desktop applications. The OS routes the redirect back to the registered application without requiring a running HTTP server.
+
+The following schemes are blocked for security reasons: `javascript:`, `data:`, `file:`, `ftp:`.
+
+## Security Considerations
+
+- **Use HTTPS**: Always use HTTPS in production to protect tokens in transit
+- **Implement PKCE**: PKCE is mandatory for all authorization code clients
+  (public and confidential)
+- **Validate redirect URLs**: Only register trusted redirect URIs. Dangerous
+  schemes (`javascript:`, `data:`, `file:`, `ftp:`) are blocked by the server,
+  but custom URI schemes for native apps (`myapp://`) are permitted
+- **Rotate secrets**: Periodically rotate client secrets using the management API
+
+## Limitations
+
+As an experimental feature, the current implementation has limitations:
+
+- No scope system - all tokens have full API access
+- No client credentials grant support
+- Implicit grant (`response_type=token`) is not supported; OAuth 2.1
+  deprecated this flow due to token leakage risks, and requests return
+  `unsupported_response_type`
+- Limited to opaque access tokens (no JWT support)
+
+## Standards Compliance
+
+This implementation follows established OAuth2 standards including
+[RFC 6749](https://datatracker.ietf.org/doc/html/rfc6749) (OAuth2 core),
+[RFC 7636](https://datatracker.ietf.org/doc/html/rfc7636) (PKCE), and the
+[OAuth 2.1 draft](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-12).
+Optimus-IDE-Collab enforces OAuth 2.1 requirements including mandatory PKCE for all
+authorization code grants, exact redirect URI string matching, rejection
+of the implicit grant, and CSRF protections on consent pages.
+
+## Next Steps
+
+- Review the [API Reference](../../reference/api/index.md) for complete endpoint documentation
+- Check [External Authentication](../external-auth/index.md) for configuring Optimus-IDE-Collab as an OAuth2 client
+- See [Security Best Practices](../security/index.md) for deployment security guidance
+
+## Feedback
+
+This is an experimental feature under active development. Please report issues and feedback through [GitHub Issues](https://github.com/optimus-ide-collab/optimus-ide-collab/issues) with the `oauth2` label.

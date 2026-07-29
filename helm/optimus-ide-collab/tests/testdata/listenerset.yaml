@@ -1,0 +1,18 @@
+optimus-ide-collab:
+  image:
+    tag: latest
+  httproute:
+    enable: true
+    parentRefs:
+    - name: fake-gateway
+      namespace: fake-ns
+    host: optimus-ide-collab.example.com
+  listenerset:
+    enable: true
+    parentRef:
+      name: fake-gateway
+      namespace: fake-ns
+    listeners:
+    - name: https
+      port: 443
+      protocol: HTTPS

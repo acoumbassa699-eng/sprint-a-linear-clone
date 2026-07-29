@@ -1,0 +1,45 @@
+{{- if .Values.optimus-ide-collab.service.enable }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: optimus-ide-collab
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "optimus-ide-collab.labels" . | nindent 4 }}
+  annotations:
+    {{- toYaml .Values.optimus-ide-collab.service.annotations | nindent 4 }}
+spec:
+  type: {{ .Values.optimus-ide-collab.service.type }}
+  sessionAffinity: {{ .Values.optimus-ide-collab.service.sessionAffinity }}
+  ports:
+    - name: "http"
+      port: 80
+      targetPort: "http"
+      protocol: TCP
+      {{- if or (eq .Values.optimus-ide-collab.service.type "NodePort") (eq .Values.optimus-ide-collab.service.type "LoadBalancer") }}
+      nodePort: {{ .Values.optimus-ide-collab.service.httpNodePort }}
+      {{- end }}
+    {{- if eq (include "optimus-ide-collab.tlsEnabled" .) "true" }}
+    - name: "https"
+      port: 443
+      targetPort: "https"
+      protocol: TCP
+      {{- if or (eq .Values.optimus-ide-collab.service.type "NodePort") (eq .Values.optimus-ide-collab.service.type "LoadBalancer") }}
+      nodePort: {{ .Values.optimus-ide-collab.service.httpsNodePort }}
+      {{- end }}
+    {{- end }}
+  {{- if eq "LoadBalancer" .Values.optimus-ide-collab.service.type }}
+  {{- with .Values.optimus-ide-collab.service.loadBalancerIP }}
+  loadBalancerIP: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.optimus-ide-collab.service.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.optimus-ide-collab.service.loadBalancerClass }}
+  loadBalancerClass: {{ . | quote }}
+  {{- end }}
+  {{- end }}
+  selector:
+    {{- include "optimus-ide-collab.selectorLabels" . | nindent 4 }}
+{{- end }}

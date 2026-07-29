@@ -1,0 +1,118 @@
+{{- define "liboptimus-ide-collab.deployment.tpl" -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "optimus-ide-collab.name" .}}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "optimus-ide-collab.labels" . | nindent 4 }}
+    {{- with .Values.optimus-ide-collab.labels }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+  annotations: {{ toYaml .Values.optimus-ide-collab.annotations | nindent 4}}
+spec:
+  replicas: {{ .Values.optimus-ide-collab.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "optimus-ide-collab.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "optimus-ide-collab.labels" . | nindent 8 }}
+          {{- with .Values.optimus-ide-collab.podLabels }}
+          {{- toYaml . | nindent 8 }}
+          {{- end }}
+      annotations:
+        {{- include "optimus-ide-collab.componentAnnotation" . | nindent 8 }}
+        {{- with .Values.optimus-ide-collab.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+
+    spec:
+      serviceAccountName: {{ .Values.optimus-ide-collab.serviceAccount.name | quote }}
+      {{- with .Values.optimus-ide-collab.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      {{- with .Values.optimus-ide-collab.podSecurityContext }}
+      securityContext:
+      {{- toYaml . | nindent 8 }}
+      {{- end }}
+      restartPolicy: Always
+      {{- with .Values.optimus-ide-collab.image.pullSecrets }}
+      imagePullSecrets:
+      {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: 60
+      {{- with .Values.optimus-ide-collab.affinity }}
+      affinity:
+      {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.optimus-ide-collab.tolerations }}
+      tolerations:
+      {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.optimus-ide-collab.nodeSelector }}
+      nodeSelector:
+      {{ toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.optimus-ide-collab.topologySpreadConstraints }}
+      topologySpreadConstraints:
+      {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.optimus-ide-collab.hostAliases }}
+      hostAliases:
+      {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.optimus-ide-collab.initContainers }}
+      initContainers:
+      {{ toYaml . | nindent 8 }}
+      {{- end }}
+      containers: []
+      {{- include "optimus-ide-collab.volumes" . | nindent 6 }}
+{{- end -}}
+{{- define "liboptimus-ide-collab.deployment" -}}
+{{- include "liboptimus-ide-collab.util.merge" (append . "liboptimus-ide-collab.deployment.tpl") -}}
+{{- end -}}
+
+{{- define "liboptimus-ide-collab.containerspec.tpl" -}}
+name: optimus-ide-collab
+image: {{ include "optimus-ide-collab.image" . | quote }}
+imagePullPolicy: {{ .Values.optimus-ide-collab.image.pullPolicy }}
+command:
+  {{- toYaml .Values.optimus-ide-collab.command | nindent 2 }}
+resources:
+  {{- if and (hasKey .Values.optimus-ide-collab "resources") (not (empty .Values.optimus-ide-collab.resources)) }}
+    {{- toYaml .Values.optimus-ide-collab.resources | nindent 2 }}
+  {{- else }}
+    limits:
+      cpu: 2000m
+      memory: 4096Mi
+    requests:
+      cpu: 2000m
+      memory: 4096Mi
+  {{- end }}
+lifecycle:
+  {{- toYaml .Values.optimus-ide-collab.lifecycle | nindent 2 }}
+securityContext: {{ toYaml .Values.optimus-ide-collab.securityContext | nindent 2 }}
+{{ include "optimus-ide-collab.volumeMounts" . }}
+{{- end -}}
+{{- define "liboptimus-ide-collab.containerspec" -}}
+{{- include "liboptimus-ide-collab.util.merge" (append . "liboptimus-ide-collab.containerspec.tpl") -}}
+{{- end -}}
+
+{{- define "liboptimus-ide-collab.serviceaccount.tpl" -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.optimus-ide-collab.serviceAccount.name | quote }}
+  namespace: {{ .Release.Namespace }}
+  annotations: {{ toYaml .Values.optimus-ide-collab.serviceAccount.annotations | nindent 4 }}
+  labels:
+    {{- include "optimus-ide-collab.labels" . | nindent 4 }}
+    {{- with .Values.optimus-ide-collab.serviceAccount.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end -}}
+{{- define "liboptimus-ide-collab.serviceaccount" -}}
+{{- include "liboptimus-ide-collab.util.merge" (append . "liboptimus-ide-collab.serviceaccount.tpl") -}}
+{{- end -}}

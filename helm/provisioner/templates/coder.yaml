@@ -1,0 +1,7 @@
+---
+{{- if not .Values.optimus-ide-collab.serviceAccount.disableCreate }}
+{{ include "liboptimus-ide-collab.serviceaccount" (list . "optimus-ide-collab.serviceaccount") }}
+{{- end }}
+
+---
+{{ include "liboptimus-ide-collab.deployment" (list . "optimus-ide-collab.deployment") }}

@@ -1,0 +1,10 @@
+optimus-ide-collab:
+  image:
+    tag: latest
+provisionerDaemon:
+  pskSecretName: "not-the-default-optimus-ide-collab-provisioner-psk"
+  keySecretName: "optimus-ide-collab-provisionerd-key"
+  keySecretKey: "provisionerd-key"
+  tags:
+    location: auh
+    clusterType: k8s
